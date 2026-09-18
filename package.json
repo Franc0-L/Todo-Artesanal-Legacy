@@ -1,0 +1,33 @@
+{
+  "name": "todo-artesanal",
+  "version": "1.0.0",
+  "description": "Aplicación web para gestionar el menú semanal de viandas, pedidos de clientes y administración del negocio.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "db:lint": "supabase db lint --local",
+    "db:reset": "supabase db reset --local --yes",
+    "db:test": "supabase test db"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Franc0-L/Todo-Artesanal.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Franc0-L/Todo-Artesanal/issues"
+  },
+  "homepage": "https://github.com/Franc0-L/Todo-Artesanal#readme",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.116.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^6.1.1",
+    "vite": "^8.3.0"
+  }
+}
