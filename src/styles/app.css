@@ -129,6 +129,64 @@ button:disabled {
   text-decoration: none;
 }
 
+.admin-menu-toggle {
+  display: none;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 9px;
+  background: transparent;
+}
+
+.admin-menu-toggle:hover:not(:disabled) {
+  background: var(--color-clay-bg);
+  border-color: var(--color-border-strong);
+}
+
+.hamburger-icon {
+  position: relative;
+  display: block;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-ink);
+}
+
+.hamburger-icon::before,
+.hamburger-icon::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-ink);
+}
+
+.hamburger-icon::before {
+  top: -6px;
+}
+
+.hamburger-icon::after {
+  top: 6px;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .admin-nav {
   min-width: 0;
   display: flex;
@@ -273,6 +331,21 @@ button:disabled {
   font-size: 13px;
   line-height: 1.5;
   text-align: center;
+}
+
+.client-centered {
+  min-height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  color: var(--color-ink-muted);
+  font-size: 17px;
+}
+
+.client-centered p {
+  max-width: 320px;
 }
 
 .page-card {
@@ -616,26 +689,40 @@ button:disabled {
   }
 
   .admin-header-inner {
-    align-items: flex-start;
     flex-wrap: wrap;
-    gap: 8px 14px;
+    gap: 8px 12px;
     padding: 12px 16px 10px;
   }
 
   .admin-brand {
-    width: 100%;
+    flex: 1 1 auto;
   }
 
-  .admin-nav {
-    order: 2;
-    width: calc(100% - 110px);
-    padding-bottom: 3px;
+  .admin-menu-toggle {
+    display: inline-flex;
+    order: 1;
   }
 
   .admin-logout {
     order: 2;
-    margin-left: auto;
-    align-self: center;
+    margin-left: 0;
+  }
+
+  .admin-nav {
+    display: none;
+    order: 3;
+    width: 100%;
+    flex-direction: column;
+    gap: 2px;
+    overflow-x: visible;
+  }
+
+  .admin-nav-open {
+    display: flex;
+  }
+
+  .admin-nav-link {
+    padding: 11px 12px;
   }
 
   .admin-main {

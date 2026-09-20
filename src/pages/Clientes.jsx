@@ -7,6 +7,8 @@ export default function Clientes() {
   const [error, setError] = useState("");
   const [copiado, setCopiado] = useState(null);
   const [rotando, setRotando] = useState(null);
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroActivo, setFiltroActivo] = useState("todos");
 
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevoTelefono, setNuevoTelefono] = useState("");
@@ -111,6 +113,18 @@ export default function Clientes() {
     setError("");
   }
 
+  const clientesFiltrados = clientes.filter((c) => {
+    if (filtroActivo === "activos" && !c.activo) return false;
+    if (filtroActivo === "inactivos" && c.activo) return false;
+
+    const termino = busqueda.trim().toLowerCase();
+    if (!termino) return true;
+    return (
+      c.nombre.toLowerCase().includes(termino) ||
+      (c.telefono ?? "").toLowerCase().includes(termino)
+    );
+  });
+
   return (
     <AdminLayout>
       <div className="page-card" style={cardStyle}>
@@ -124,6 +138,32 @@ export default function Clientes() {
           <p role="alert" className="alert-copy">
             {error}
           </p>
+        )}
+
+        {clientes.length > 0 && (
+          <div className="form-grid week-settings">
+            <label className="field week-weather-field">
+              <span className="field-label">Buscar cliente</span>
+              <input
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                placeholder="Nombre o teléfono…"
+                className="control"
+              />
+            </label>
+            <label className="field week-weather-field">
+              <span className="field-label">Estado</span>
+              <select
+                value={filtroActivo}
+                onChange={(e) => setFiltroActivo(e.target.value)}
+                className="control"
+              >
+                <option value="todos">Todos</option>
+                <option value="activos">Solo activos</option>
+                <option value="inactivos">Solo inactivos</option>
+              </select>
+            </label>
+          </div>
         )}
 
         <form onSubmit={agregarCliente} className="form-grid form-divider">
@@ -171,6 +211,10 @@ export default function Clientes() {
 
         {clientes.length === 0 ? (
           <p className="muted-copy">Todavía no cargaste ningún cliente.</p>
+        ) : clientesFiltrados.length === 0 ? (
+          <p className="muted-copy">
+            Ningún cliente coincide con los filtros elegidos.
+          </p>
         ) : (
           <div className="table-scroll">
             <table className="data-table data-table-clients">
@@ -186,7 +230,7 @@ export default function Clientes() {
                 </tr>
               </thead>
               <tbody>
-                {clientes.map((cliente) => (
+                {clientesFiltrados.map((cliente) => (
                   <tr key={cliente.id}>
                     <td>
                       <input

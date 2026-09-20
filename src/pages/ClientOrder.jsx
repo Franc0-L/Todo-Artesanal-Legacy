@@ -222,19 +222,8 @@ function mapearDias(data) {
 
 function Centrado({ children }) {
   return (
-    <div
-      style={{
-        minHeight: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        textAlign: "center",
-        color: "var(--color-ink-muted)",
-        fontSize: 17,
-      }}
-    >
-      <p style={{ maxWidth: 320 }}>{children}</p>
+    <div className="client-centered">
+      <p>{children}</p>
     </div>
   );
 }

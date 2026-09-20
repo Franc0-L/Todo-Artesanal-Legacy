@@ -23,9 +23,38 @@ function diaVacio() {
   return { plato_general_id: "", plato_opcional_id: "" };
 }
 
+function elegirSiguiente(
+  candidatos,
+  usadosSemana,
+  excluirId,
+  excluirCategoria,
+) {
+  const filtros = [
+    (c) =>
+      !usadosSemana.has(c.id) &&
+      c.id !== excluirId &&
+      (!excluirCategoria || c.categoria !== excluirCategoria),
+    (c) => !usadosSemana.has(c.id) && c.id !== excluirId,
+    (c) => c.id !== excluirId,
+    () => true,
+  ];
+
+  for (const filtro of filtros) {
+    const pool = candidatos.filter(filtro);
+    if (pool.length > 0) {
+      const topK = pool.slice(0, Math.min(3, pool.length));
+      const elegido = topK[Math.floor(Math.random() * topK.length)];
+      usadosSemana.add(elegido.id);
+      return elegido.id;
+    }
+  }
+  return candidatos[0]?.id;
+}
+
 export default function NuevaSemana() {
   const navigate = useNavigate();
   const [semanaActivaActual, setSemanaActivaActual] = useState(null);
+  const [semanasAnteriores, setSemanasAnteriores] = useState([]);
   const [platos, setPlatos] = useState([]);
   const [cargandoPlatos, setCargandoPlatos] = useState(true);
 
@@ -36,6 +65,7 @@ export default function NuevaSemana() {
     Object.fromEntries(DIAS_SEMANA.map((d) => [d, diaVacio()])),
   );
   const [climaSemana, setClimaSemana] = useState("cualquiera");
+  const [duplicando, setDuplicando] = useState(false);
 
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState("");
@@ -44,26 +74,37 @@ export default function NuevaSemana() {
     let activo = true;
 
     async function cargarDatos() {
-      const [semanaResult, platosResult] = await Promise.all([
-        supabase
-          .from("semanas")
-          .select("fecha_inicio")
-          .eq("activa", true)
-          .maybeSingle(),
-        supabase
-          .from("vista_uso_platos")
-          .select("*")
-          .eq("activo", true)
-          .order("nombre"),
-      ]);
+      const [semanaResult, semanasAnterioresResult, platosResult] =
+        await Promise.all([
+          supabase
+            .from("semanas")
+            .select("fecha_inicio")
+            .eq("activa", true)
+            .maybeSingle(),
+          supabase
+            .from("semanas")
+            .select("id, fecha_inicio")
+            .order("fecha_inicio", { ascending: false })
+            .limit(15),
+          supabase
+            .from("vista_uso_platos")
+            .select("*")
+            .eq("activo", true)
+            .order("nombre"),
+        ]);
 
       if (!activo) return;
 
-      if (semanaResult.error || platosResult.error) {
+      if (
+        semanaResult.error ||
+        semanasAnterioresResult.error ||
+        platosResult.error
+      ) {
         setError("No pudimos cargar los datos. Probá de nuevo.");
       }
 
       setSemanaActivaActual(semanaResult.data ?? null);
+      setSemanasAnteriores(semanasAnterioresResult.data ?? []);
       setPlatos(platosResult.data ?? []);
       setCargandoPlatos(false);
     }
@@ -79,6 +120,17 @@ export default function NuevaSemana() {
     setDias((prev) => ({ ...prev, [dia]: { ...prev[dia], [campo]: valor } }));
   }
 
+  function platoUsadoEnOtroSlot(platoId, diaActual, campoActual) {
+    if (!platoId) return false;
+    return DIAS_SEMANA.some((dia) =>
+      ["plato_general_id", "plato_opcional_id"].some(
+        (campo) =>
+          !(dia === diaActual && campo === campoActual) &&
+          dias[dia][campo] === platoId,
+      ),
+    );
+  }
+
   function sugerirPlatos() {
     const aptos = platos.filter(
       (p) => p.clima === climaSemana || p.clima === "cualquiera",
@@ -92,23 +144,66 @@ export default function NuevaSemana() {
 
     if (candidatos.length === 0) return;
 
-    const usados = new Set();
-    function elegirSiguiente(excluirId) {
-      const disponible =
-        candidatos.find((c) => !usados.has(c.id) && c.id !== excluirId) ??
-        candidatos.find((c) => c.id !== excluirId) ??
-        candidatos[0];
-      usados.add(disponible.id);
-      return disponible.id;
-    }
-
+    const usadosSemana = new Set();
     const nuevos = {};
+
     for (const dia of DIAS_SEMANA) {
-      const general = elegirSiguiente();
-      const opcional = elegirSiguiente(general);
+      const general = elegirSiguiente(candidatos, usadosSemana, null, null);
+      const categoriaGeneral = candidatos.find(
+        (c) => c.id === general,
+      )?.categoria;
+      const opcional = elegirSiguiente(
+        candidatos,
+        usadosSemana,
+        general,
+        categoriaGeneral,
+      );
       nuevos[dia] = { plato_general_id: general, plato_opcional_id: opcional };
     }
     setDias(nuevos);
+  }
+
+  async function duplicarSemana(semanaId) {
+    if (!semanaId) return;
+
+    setDuplicando(true);
+    setError("");
+    const { data, error: fetchError } = await supabase
+      .from("dias_menu")
+      .select("dia_semana, plato_general_id, plato_opcional_id")
+      .eq("semana_id", semanaId);
+    setDuplicando(false);
+
+    if (fetchError) {
+      setError("No pudimos duplicar esa semana. Probá de nuevo.");
+      return;
+    }
+
+    const idsActivos = new Set(platos.map((p) => p.id));
+    const nuevos = Object.fromEntries(DIAS_SEMANA.map((d) => [d, diaVacio()]));
+    let huboOmitidos = false;
+
+    for (const fila of data ?? []) {
+      if (!DIAS_SEMANA.includes(fila.dia_semana)) continue;
+      const general = idsActivos.has(fila.plato_general_id)
+        ? fila.plato_general_id
+        : "";
+      const opcional = idsActivos.has(fila.plato_opcional_id)
+        ? fila.plato_opcional_id
+        : "";
+      if (!general || !opcional) huboOmitidos = true;
+      nuevos[fila.dia_semana] = {
+        plato_general_id: general,
+        plato_opcional_id: opcional,
+      };
+    }
+
+    setDias(nuevos);
+    if (huboOmitidos) {
+      setError(
+        "Se duplicó la semana, pero algún plato usado ahí ya no está activo — revisá los días con selección vacía.",
+      );
+    }
   }
 
   async function guardar(e) {
@@ -202,6 +297,35 @@ export default function NuevaSemana() {
           </p>
         )}
 
+        {semanasAnteriores.length > 0 && (
+          <div className="form-grid week-settings">
+            <label className="field week-weather-field">
+              <span className="field-label">Duplicar semana anterior</span>
+              <select
+                className="control"
+                value=""
+                disabled={duplicando}
+                onChange={(e) => duplicarSemana(e.target.value)}
+              >
+                <option value="">
+                  {duplicando
+                    ? "Duplicando…"
+                    : "Elegí una semana para copiar sus platos…"}
+                </option>
+                {semanasAnteriores.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {formatFecha(s.fecha_inicio)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+        <p className="form-hint">
+          Copia el plato general y opcional de cada día de esa semana. No copia
+          precios ni fecha — esos los definís acá abajo para la semana nueva.
+        </p>
+
         <div className="form-grid week-settings">
           <label className="field week-weather-field">
             <span className="field-label">Clima esperado esta semana</span>
@@ -228,7 +352,10 @@ export default function NuevaSemana() {
         </div>
         <p className="form-hint">
           Prioriza los platos que hace más tiempo no se usan y van bien con ese
-          clima. Revisá y cambiá lo que quieras antes de confirmar.
+          clima, evita repetir categoría entre el general y el opcional de un
+          mismo día, y no repite plato en toda la semana. Volvé a tocar "Sugerir
+          platos" para ver otra combinación. Revisá y cambiá lo que quieras
+          antes de confirmar.
         </p>
 
         <form onSubmit={guardar}>
@@ -286,11 +413,19 @@ export default function NuevaSemana() {
                   className="control"
                 >
                   <option value="">Elegí el plato general…</option>
-                  {platos.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre}
-                    </option>
-                  ))}
+                  {platos.map((p) => {
+                    const yaUsado = platoUsadoEnOtroSlot(
+                      p.id,
+                      dia,
+                      "plato_general_id",
+                    );
+                    return (
+                      <option key={p.id} value={p.id} disabled={yaUsado}>
+                        {p.nombre}
+                        {yaUsado ? " (ya en la semana)" : ""}
+                      </option>
+                    );
+                  })}
                 </select>
                 <select
                   id={`${dia}-opcional`}
@@ -302,11 +437,19 @@ export default function NuevaSemana() {
                   className="control"
                 >
                   <option value="">Elegí el plato opcional…</option>
-                  {platos.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.nombre}
-                    </option>
-                  ))}
+                  {platos.map((p) => {
+                    const yaUsado = platoUsadoEnOtroSlot(
+                      p.id,
+                      dia,
+                      "plato_opcional_id",
+                    );
+                    return (
+                      <option key={p.id} value={p.id} disabled={yaUsado}>
+                        {p.nombre}
+                        {yaUsado ? " (ya en la semana)" : ""}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             </div>
