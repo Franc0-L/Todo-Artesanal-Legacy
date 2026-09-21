@@ -3,6 +3,10 @@ import { supabase } from "../lib/supabaseClient";
 import { DIA_LABEL, formatFecha } from "../lib/format";
 import AdminLayout, { cardStyle } from "./AdminLayout.jsx";
 
+function hoyISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function Cancelaciones() {
   const [semanas, setSemanas] = useState([]);
   const [semanaId, setSemanaId] = useState("");
@@ -104,6 +108,8 @@ export default function Cancelaciones() {
     );
   }, [dias, clientes, pedidos]);
 
+  const hoy = hoyISO();
+
   return (
     <AdminLayout>
       <div className="page-card" style={cardStyle}>
@@ -155,7 +161,10 @@ export default function Cancelaciones() {
                   </thead>
                   <tbody>
                     {filas.map((f) => (
-                      <tr key={f.id}>
+                      <tr
+                        key={f.id}
+                        className={f.fecha < hoy ? "day-cell-past" : undefined}
+                      >
                         <td>{f.cliente}</td>
                         <td className="nowrap-cell">
                           {DIA_LABEL[f.dia]}{" "}

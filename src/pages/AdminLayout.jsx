@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { to: "/admin", label: "Pedidos", end: true },
   { to: "/admin/nueva-semana", label: "Nueva semana" },
   { to: "/admin/platos", label: "Platos" },
+  { to: "/admin/menus", label: "Menús" },
   { to: "/admin/clientes", label: "Clientes" },
   { to: "/admin/historial-semanas", label: "Historial semanas" },
   { to: "/admin/cancelaciones", label: "Cancelaciones" },

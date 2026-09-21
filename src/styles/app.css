@@ -596,6 +596,20 @@ button:disabled {
   min-width: 700px;
 }
 
+.day-header-today {
+  color: var(--color-clay-dark) !important;
+  background: var(--color-clay-bg) !important;
+}
+
+.day-header-past {
+  color: var(--color-ink-muted);
+  opacity: 0.65;
+}
+
+.day-cell-past {
+  opacity: 0.55;
+}
+
 .order-cell {
   width: 36px;
   height: 36px;

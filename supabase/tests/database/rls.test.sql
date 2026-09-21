@@ -164,7 +164,7 @@ select ok(
   exists (
     select 1
     from pg_attribute
-    where attrelid = 'public.pedidos'::regclass
+    where attrelid = 'public.pedido_items'::regclass
       and attname = 'monto_aplicado'
       and attnotnull
   ),
@@ -205,9 +205,9 @@ select ok(
 select ok(
   exists (
     select 1 from pg_constraint
-    where conname = 'dias_menu_platos_distintos'
+    where conname = 'dias_menu_menus_distintos'
   ),
-  'los dos platos del día deben ser distintos'
+  'los dos menus del día deben ser distintos'
 );
 
 select ok(

@@ -20,7 +20,7 @@ function sumarDias(fechaISO, n) {
 }
 
 function diaVacio() {
-  return { plato_general_id: "", plato_opcional_id: "" };
+  return { menu_general_id: "", menu_opcional_id: "" };
 }
 
 function elegirSiguiente(
@@ -33,7 +33,7 @@ function elegirSiguiente(
     (c) =>
       !usadosSemana.has(c.id) &&
       c.id !== excluirId &&
-      (!excluirCategoria || c.categoria !== excluirCategoria),
+      (!excluirCategoria || c.categoria_principal !== excluirCategoria),
     (c) => !usadosSemana.has(c.id) && c.id !== excluirId,
     (c) => c.id !== excluirId,
     () => true,
@@ -55,8 +55,8 @@ export default function NuevaSemana() {
   const navigate = useNavigate();
   const [semanaActivaActual, setSemanaActivaActual] = useState(null);
   const [semanasAnteriores, setSemanasAnteriores] = useState([]);
-  const [platos, setPlatos] = useState([]);
-  const [cargandoPlatos, setCargandoPlatos] = useState(true);
+  const [menus, setMenus] = useState([]);
+  const [cargandoMenus, setCargandoMenus] = useState(true);
 
   const [fechaInicio, setFechaInicio] = useState(proximoLunes());
   const [precioGeneral, setPrecioGeneral] = useState("");
@@ -74,7 +74,7 @@ export default function NuevaSemana() {
     let activo = true;
 
     async function cargarDatos() {
-      const [semanaResult, semanasAnterioresResult, platosResult] =
+      const [semanaResult, semanasAnterioresResult, menusResult] =
         await Promise.all([
           supabase
             .from("semanas")
@@ -87,7 +87,7 @@ export default function NuevaSemana() {
             .order("fecha_inicio", { ascending: false })
             .limit(15),
           supabase
-            .from("vista_uso_platos")
+            .from("vista_uso_menus")
             .select("*")
             .eq("activo", true)
             .order("nombre"),
@@ -98,15 +98,15 @@ export default function NuevaSemana() {
       if (
         semanaResult.error ||
         semanasAnterioresResult.error ||
-        platosResult.error
+        menusResult.error
       ) {
         setError("No pudimos cargar los datos. Probá de nuevo.");
       }
 
       setSemanaActivaActual(semanaResult.data ?? null);
       setSemanasAnteriores(semanasAnterioresResult.data ?? []);
-      setPlatos(platosResult.data ?? []);
-      setCargandoPlatos(false);
+      setMenus(menusResult.data ?? []);
+      setCargandoMenus(false);
     }
 
     cargarDatos();
@@ -120,22 +120,22 @@ export default function NuevaSemana() {
     setDias((prev) => ({ ...prev, [dia]: { ...prev[dia], [campo]: valor } }));
   }
 
-  function platoUsadoEnOtroSlot(platoId, diaActual, campoActual) {
-    if (!platoId) return false;
+  function menuUsadoEnOtroSlot(menuId, diaActual, campoActual) {
+    if (!menuId) return false;
     return DIAS_SEMANA.some((dia) =>
-      ["plato_general_id", "plato_opcional_id"].some(
+      ["menu_general_id", "menu_opcional_id"].some(
         (campo) =>
           !(dia === diaActual && campo === campoActual) &&
-          dias[dia][campo] === platoId,
+          dias[dia][campo] === menuId,
       ),
     );
   }
 
-  function sugerirPlatos() {
-    const aptos = platos.filter(
-      (p) => p.clima === climaSemana || p.clima === "cualquiera",
+  function sugerirMenus() {
+    const aptos = menus.filter(
+      (m) => m.clima === climaSemana || m.clima === "cualquiera",
     );
-    const candidatos = (aptos.length ? aptos : platos).slice().sort((a, b) => {
+    const candidatos = (aptos.length ? aptos : menus).slice().sort((a, b) => {
       if (!a.ultima_vez_usado && !b.ultima_vez_usado) return 0;
       if (!a.ultima_vez_usado) return -1;
       if (!b.ultima_vez_usado) return 1;
@@ -151,14 +151,14 @@ export default function NuevaSemana() {
       const general = elegirSiguiente(candidatos, usadosSemana, null, null);
       const categoriaGeneral = candidatos.find(
         (c) => c.id === general,
-      )?.categoria;
+      )?.categoria_principal;
       const opcional = elegirSiguiente(
         candidatos,
         usadosSemana,
         general,
         categoriaGeneral,
       );
-      nuevos[dia] = { plato_general_id: general, plato_opcional_id: opcional };
+      nuevos[dia] = { menu_general_id: general, menu_opcional_id: opcional };
     }
     setDias(nuevos);
   }
@@ -170,7 +170,7 @@ export default function NuevaSemana() {
     setError("");
     const { data, error: fetchError } = await supabase
       .from("dias_menu")
-      .select("dia_semana, plato_general_id, plato_opcional_id")
+      .select("dia_semana, menu_general_id, menu_opcional_id")
       .eq("semana_id", semanaId);
     setDuplicando(false);
 
@@ -179,29 +179,29 @@ export default function NuevaSemana() {
       return;
     }
 
-    const idsActivos = new Set(platos.map((p) => p.id));
+    const idsActivos = new Set(menus.map((m) => m.id));
     const nuevos = Object.fromEntries(DIAS_SEMANA.map((d) => [d, diaVacio()]));
     let huboOmitidos = false;
 
     for (const fila of data ?? []) {
       if (!DIAS_SEMANA.includes(fila.dia_semana)) continue;
-      const general = idsActivos.has(fila.plato_general_id)
-        ? fila.plato_general_id
+      const general = idsActivos.has(fila.menu_general_id)
+        ? fila.menu_general_id
         : "";
-      const opcional = idsActivos.has(fila.plato_opcional_id)
-        ? fila.plato_opcional_id
+      const opcional = idsActivos.has(fila.menu_opcional_id)
+        ? fila.menu_opcional_id
         : "";
       if (!general || !opcional) huboOmitidos = true;
       nuevos[fila.dia_semana] = {
-        plato_general_id: general,
-        plato_opcional_id: opcional,
+        menu_general_id: general,
+        menu_opcional_id: opcional,
       };
     }
 
     setDias(nuevos);
     if (huboOmitidos) {
       setError(
-        "Se duplicó la semana, pero algún plato usado ahí ya no está activo — revisá los días con selección vacía.",
+        "Se duplicó la semana, pero algún menú usado ahí ya no está activo — revisá los días con selección vacía.",
       );
     }
   }
@@ -216,21 +216,21 @@ export default function NuevaSemana() {
     }
 
     const faltante = DIAS_SEMANA.find(
-      (d) => !dias[d].plato_general_id || !dias[d].plato_opcional_id,
+      (d) => !dias[d].menu_general_id || !dias[d].menu_opcional_id,
     );
     if (faltante) {
       setError(
-        `Falta elegir el plato general u opcional de ${DIA_LABEL[faltante]}.`,
+        `Falta elegir el menú general u opcional de ${DIA_LABEL[faltante]}.`,
       );
       return;
     }
 
     const repetido = DIAS_SEMANA.find(
-      (d) => dias[d].plato_general_id === dias[d].plato_opcional_id,
+      (d) => dias[d].menu_general_id === dias[d].menu_opcional_id,
     );
     if (repetido) {
       setError(
-        `El plato general y el opcional de ${DIA_LABEL[repetido]} no pueden ser el mismo.`,
+        `El menú general y el opcional de ${DIA_LABEL[repetido]} no pueden ser el mismo.`,
       );
       return;
     }
@@ -238,8 +238,8 @@ export default function NuevaSemana() {
     const p_dias = DIAS_SEMANA.map((d) => ({
       dia_semana: d,
       fecha: sumarDias(fechaInicio, DIAS_SEMANA.indexOf(d)),
-      plato_general_id: dias[d].plato_general_id,
-      plato_opcional_id: dias[d].plato_opcional_id,
+      menu_general_id: dias[d].menu_general_id,
+      menu_opcional_id: dias[d].menu_opcional_id,
     }));
 
     setGuardando(true);
@@ -262,9 +262,17 @@ export default function NuevaSemana() {
     navigate("/admin");
   }
 
-  if (cargandoPlatos) return <AdminLayout />;
+  if (cargandoMenus) {
+    return (
+      <AdminLayout>
+        <div className="page-card" style={cardStyle}>
+          Cargando datos de la semana…
+        </div>
+      </AdminLayout>
+    );
+  }
 
-  if (platos.length === 0) {
+  if (menus.length === 0) {
     return (
       <AdminLayout>
         <div className="page-card" style={cardStyle}>
@@ -275,8 +283,11 @@ export default function NuevaSemana() {
             </p>
           )}
           <p className="muted-copy">
-            Todavía no hay platos en el catálogo. Cargá algunos primero en{" "}
-            <Link to="/admin/platos">Catálogo de platos</Link> y volvé acá.
+            Todavía no hay menús disponibles. Cargá platos primero en{" "}
+            <Link to="/admin/platos">Catálogo de platos</Link> — cada plato
+            nuevo ya se puede usar como menú solo — o armá combos de
+            principal+guarnición en{" "}
+            <Link to="/admin/menus">Menús compuestos</Link>, y volvé acá.
           </p>
         </div>
       </AdminLayout>
@@ -310,7 +321,7 @@ export default function NuevaSemana() {
                 <option value="">
                   {duplicando
                     ? "Duplicando…"
-                    : "Elegí una semana para copiar sus platos…"}
+                    : "Elegí una semana para copiar sus menús…"}
                 </option>
                 {semanasAnteriores.map((s) => (
                   <option key={s.id} value={s.id}>
@@ -322,7 +333,7 @@ export default function NuevaSemana() {
           </div>
         )}
         <p className="form-hint">
-          Copia el plato general y opcional de cada día de esa semana. No copia
+          Copia el menú general y opcional de cada día de esa semana. No copia
           precios ni fecha — esos los definís acá abajo para la semana nueva.
         </p>
 
@@ -344,18 +355,28 @@ export default function NuevaSemana() {
           </label>
           <button
             type="button"
-            onClick={sugerirPlatos}
+            onClick={sugerirMenus}
             className="secondary-button"
           >
-            Sugerir platos
+            Sugerir menús
           </button>
         </div>
+        {menus.length < 10 && (
+          <p className="notice-copy">
+            Tenés {menus.length}{" "}
+            {menus.length === 1 ? "menú activo" : "menús activos"} disponibles.
+            Para armar una semana completa sin repetir ninguno necesitás al
+            menos 10 — podés cargar más platos en{" "}
+            <Link to="/admin/platos">Catálogo de platos</Link> o armar combos en{" "}
+            <Link to="/admin/menus">Menús compuestos</Link>.
+          </p>
+        )}
         <p className="form-hint">
-          Prioriza los platos que hace más tiempo no se usan y van bien con ese
-          clima, evita repetir categoría entre el general y el opcional de un
-          mismo día, y no repite plato en toda la semana. Volvé a tocar "Sugerir
-          platos" para ver otra combinación. Revisá y cambiá lo que quieras
-          antes de confirmar.
+          Prioriza los menús que hace más tiempo no se usan y van bien con ese
+          clima, evita repetir la categoría del principal entre el general y el
+          opcional de un mismo día, y no repite menú en toda la semana. Volvé a
+          tocar "Sugerir menús" para ver otra combinación. Revisá y cambiá lo
+          que quieras antes de confirmar.
         </p>
 
         <form onSubmit={guardar}>
@@ -406,22 +427,22 @@ export default function NuevaSemana() {
                 <select
                   id={`${dia}-general`}
                   name={`${dia}-general`}
-                  value={dias[dia].plato_general_id}
+                  value={dias[dia].menu_general_id}
                   onChange={(e) =>
-                    actualizarDia(dia, "plato_general_id", e.target.value)
+                    actualizarDia(dia, "menu_general_id", e.target.value)
                   }
                   className="control"
                 >
-                  <option value="">Elegí el plato general…</option>
-                  {platos.map((p) => {
-                    const yaUsado = platoUsadoEnOtroSlot(
-                      p.id,
+                  <option value="">Elegí el menú general…</option>
+                  {menus.map((m) => {
+                    const yaUsado = menuUsadoEnOtroSlot(
+                      m.id,
                       dia,
-                      "plato_general_id",
+                      "menu_general_id",
                     );
                     return (
-                      <option key={p.id} value={p.id} disabled={yaUsado}>
-                        {p.nombre}
+                      <option key={m.id} value={m.id} disabled={yaUsado}>
+                        {m.nombre}
                         {yaUsado ? " (ya en la semana)" : ""}
                       </option>
                     );
@@ -430,22 +451,22 @@ export default function NuevaSemana() {
                 <select
                   id={`${dia}-opcional`}
                   name={`${dia}-opcional`}
-                  value={dias[dia].plato_opcional_id}
+                  value={dias[dia].menu_opcional_id}
                   onChange={(e) =>
-                    actualizarDia(dia, "plato_opcional_id", e.target.value)
+                    actualizarDia(dia, "menu_opcional_id", e.target.value)
                   }
                   className="control"
                 >
-                  <option value="">Elegí el plato opcional…</option>
-                  {platos.map((p) => {
-                    const yaUsado = platoUsadoEnOtroSlot(
-                      p.id,
+                  <option value="">Elegí el menú opcional…</option>
+                  {menus.map((m) => {
+                    const yaUsado = menuUsadoEnOtroSlot(
+                      m.id,
                       dia,
-                      "plato_opcional_id",
+                      "menu_opcional_id",
                     );
                     return (
-                      <option key={p.id} value={p.id} disabled={yaUsado}>
-                        {p.nombre}
+                      <option key={m.id} value={m.id} disabled={yaUsado}>
+                        {m.nombre}
                         {yaUsado ? " (ya en la semana)" : ""}
                       </option>
                     );

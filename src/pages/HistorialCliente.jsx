@@ -3,6 +3,10 @@ import { supabase } from "../lib/supabaseClient";
 import { DIA_LABEL, formatFecha } from "../lib/format";
 import AdminLayout, { cardStyle } from "./AdminLayout.jsx";
 
+function hoyISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 const ETIQUETA_TIPO = {
   general: "General",
   opcional: "Opcional",
@@ -104,6 +108,8 @@ export default function HistorialCliente() {
     [diasConSemana, pedidosCliente, platosPorId],
   );
 
+  const hoy = hoyISO();
+
   return (
     <AdminLayout>
       <div className="page-card" style={cardStyle}>
@@ -156,7 +162,10 @@ export default function HistorialCliente() {
                   </thead>
                   <tbody>
                     {filas.map((f) => (
-                      <tr key={f.id}>
+                      <tr
+                        key={f.id}
+                        className={f.fecha < hoy ? "day-cell-past" : undefined}
+                      >
                         <td className="nowrap-cell">
                           {DIA_LABEL[f.diaSemana]}{" "}
                           <span className="muted-inline">
