@@ -283,11 +283,11 @@ export default function NuevaSemana() {
             </p>
           )}
           <p className="muted-copy">
-            Todavía no hay menús disponibles. Cargá platos primero en{" "}
-            <Link to="/admin/platos">Catálogo de platos</Link> — cada plato
-            nuevo ya se puede usar como menú solo — o armá combos de
-            principal+guarnición en{" "}
-            <Link to="/admin/menus">Menús compuestos</Link>, y volvé acá.
+            Todavía no hay menús disponibles. Un plato solo no alcanza — armá
+            combos de principal+guarnición en{" "}
+            <Link to="/admin/menus">Menús compuestos</Link> (primero cargá
+            platos en <Link to="/admin/platos">Catálogo de platos</Link> si
+            todavía no tenés con qué combinar) y volvé acá.
           </p>
         </div>
       </AdminLayout>
@@ -366,9 +366,10 @@ export default function NuevaSemana() {
             Tenés {menus.length}{" "}
             {menus.length === 1 ? "menú activo" : "menús activos"} disponibles.
             Para armar una semana completa sin repetir ninguno necesitás al
-            menos 10 — podés cargar más platos en{" "}
-            <Link to="/admin/platos">Catálogo de platos</Link> o armar combos en{" "}
-            <Link to="/admin/menus">Menús compuestos</Link>.
+            menos 10 — armá más combos en{" "}
+            <Link to="/admin/menus">Menús compuestos</Link> (cargá más platos en{" "}
+            <Link to="/admin/platos">Catálogo de platos</Link> si te faltan con
+            qué combinarlos).
           </p>
         )}
         <p className="form-hint">

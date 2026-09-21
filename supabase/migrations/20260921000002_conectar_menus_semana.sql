@@ -35,6 +35,7 @@ left join public.dias_menu dm_opcional
   on dm_opcional.menu_opcional_id = m.id
 
 where m.tipo = 'semanal'
+  and m.plato_unico_id is null
 
 group by
   m.id, m.nombre, m.clima, m.activo, pp.categoria, m.creado_en, m.actualizado_en;
@@ -170,9 +171,10 @@ begin
       where id = v_menu_general
         and tipo = 'semanal'
         and activo = true
+        and plato_unico_id is null
     ) then
       raise exception
-        'El menú general no existe o está inactivo';
+        'El menú general no existe, está inactivo o no es un menú compuesto';
     end if;
 
     if not exists (
@@ -181,9 +183,10 @@ begin
       where id = v_menu_opcional
         and tipo = 'semanal'
         and activo = true
+        and plato_unico_id is null
     ) then
       raise exception
-        'El menú opcional no existe o está inactivo';
+        'El menú opcional no existe, está inactivo o no es un menú compuesto';
     end if;
 
     insert into public.dias_menu (
