@@ -1,4 +1,4 @@
--- Todo-Artesanal-Legacy
+-- Todo-Artesanal-Legacy-Legacy
 -- 20260917000003_security.sql
 
 alter table public.clientes enable row level security;
