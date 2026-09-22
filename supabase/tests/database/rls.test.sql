@@ -1,4 +1,4 @@
--- Todo-Artesanal
+-- Todo-Artesanal-Legacy
 -- RLS tests consolidados (15 pruebas)
 
 begin;

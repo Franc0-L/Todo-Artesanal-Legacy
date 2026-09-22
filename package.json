@@ -1,5 +1,5 @@
 {
-  "name": "todo-artesanal",
+  "name": "Todo-Artesanal-Legacy",
   "version": "1.0.0",
   "description": "Aplicación web para gestionar el menú semanal de viandas, pedidos de clientes y administración del negocio.",
   "private": true,
@@ -14,12 +14,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Franc0-L/Todo-Artesanal.git"
+    "url": "git+https://github.com/Franc0-L/Todo-Artesanal-Legacy.git"
   },
   "bugs": {
-    "url": "https://github.com/Franc0-L/Todo-Artesanal/issues"
+    "url": "https://github.com/Franc0-L/Todo-Artesanal-Legacy/issues"
   },
-  "homepage": "https://github.com/Franc0-L/Todo-Artesanal#readme",
+  "homepage": "https://github.com/Franc0-L/Todo-Artesanal-Legacy#readme",
   "dependencies": {
     "@supabase/supabase-js": "^2.116.0",
     "react": "^19.3.0",

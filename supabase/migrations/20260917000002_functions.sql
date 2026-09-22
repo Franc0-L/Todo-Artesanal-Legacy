@@ -1,4 +1,4 @@
--- Todo-Artesanal
+-- Todo-Artesanal-Legacy
 -- 20260917000002_functions.sql
 
 create or replace function public.set_actualizado_en()

@@ -1,4 +1,4 @@
--- Todo-Artesanal
+-- Todo-Artesanal-Legacy
 -- 20260921000001_menus_compuestos.sql
 
 create or replace view public.vista_menus_compuestos

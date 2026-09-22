@@ -1,4 +1,4 @@
--- Todo-Artesanal
+-- Todo-Artesanal-Legacy
 -- 20260922000001_especiales_del_dia.sql
 
 alter table public.dias_menu

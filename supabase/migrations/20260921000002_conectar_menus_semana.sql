@@ -1,4 +1,4 @@
--- Todo-Artesanal
+-- Todo-Artesanal-Legacy
 -- 20260921000002_conectar_menus_semana.sql
 
 create or replace view public.vista_uso_menus

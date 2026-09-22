@@ -1,4 +1,4 @@
--- Todo-Artesanal
+-- Todo-Artesanal-Legacy
 -- 20260917000001_schema.sql
 
 create extension if not exists pgcrypto;
