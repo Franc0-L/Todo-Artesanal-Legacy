@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import { DIA_LABEL, formatFecha } from "../lib/format";
 import AdminLayout, { cardStyle } from "./AdminLayout.jsx";
@@ -14,11 +15,12 @@ const ETIQUETA_TIPO = {
 };
 
 export default function HistorialCliente() {
+  const [searchParams] = useSearchParams();
   const [clientes, setClientes] = useState([]);
   const [clienteId, setClienteId] = useState("");
   const [diasConSemana, setDiasConSemana] = useState([]);
   const [pedidosCliente, setPedidosCliente] = useState([]);
-  const [platosPorId, setPlatosPorId] = useState({});
+  const [menusPorId, setMenusPorId] = useState({});
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(true);
 
@@ -34,31 +36,36 @@ export default function HistorialCliente() {
         return;
       }
       setClientes(data ?? []);
-      if (data?.length) setClienteId(data[0].id);
+      const desdeUrl = searchParams.get("cliente");
+      const existe = desdeUrl && data?.some((c) => c.id === desdeUrl);
+      if (existe) setClienteId(desdeUrl);
+      else if (data?.length) setClienteId(data[0].id);
     }
     cargarInicial();
+    // Solo se usa el query param para la preselección inicial.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     async function cargarHistorialCompleto() {
-      const [diasResult, platosResult] = await Promise.all([
+      const [diasResult, menusResult] = await Promise.all([
         supabase
           .from("dias_menu")
           .select(
-            "id, dia_semana, fecha, plato_general_id, plato_opcional_id, semanas(fecha_inicio)",
+            "id, dia_semana, fecha, menu_general_id, menu_opcional_id, semanas(fecha_inicio)",
           )
           .order("fecha", { ascending: false }),
-        supabase.from("platos").select("id, nombre"),
+        supabase.from("menus").select("id, nombre"),
       ]);
-      if (diasResult.error || platosResult.error) {
+      if (diasResult.error || menusResult.error) {
         setError("No pudimos cargar el historial. Probá de nuevo.");
         setCargando(false);
         return;
       }
       setDiasConSemana(diasResult.data ?? []);
-      setPlatosPorId(
+      setMenusPorId(
         Object.fromEntries(
-          (platosResult.data ?? []).map((p) => [p.id, p.nombre]),
+          (menusResult.data ?? []).map((m) => [m.id, m.nombre]),
         ),
       );
       setCargando(false);
@@ -70,8 +77,8 @@ export default function HistorialCliente() {
     if (!clienteId) return;
     let activo = true;
     supabase
-      .from("pedidos")
-      .select("dia_menu_id, tipo_menu")
+      .from("vista_pedidos_semana")
+      .select("dia_menu_id, tipo_menu, plato, cantidad")
       .eq("cliente_id", clienteId)
       .then(({ data, error: pedidosError }) => {
         if (!activo) return;
@@ -89,23 +96,30 @@ export default function HistorialCliente() {
   const filas = useMemo(
     () =>
       diasConSemana.map((dia) => {
-        const pedido = pedidosCliente.find((p) => p.dia_menu_id === dia.id);
+        const pedidosDia = pedidosCliente.filter(
+          (p) => p.dia_menu_id === dia.id,
+        );
+        const principal = pedidosDia.find((p) => p.tipo_menu !== "especial");
+        const especial = pedidosDia.find((p) => p.tipo_menu === "especial");
         return {
           id: dia.id,
           fecha: dia.fecha,
           diaSemana: dia.dia_semana,
           semanaInicio: dia.semanas?.fecha_inicio,
-          eleccion: pedido ? ETIQUETA_TIPO[pedido.tipo_menu] : "No pidió",
+          eleccion: principal ? ETIQUETA_TIPO[principal.tipo_menu] : "No pidió",
           plato:
-            pedido?.tipo_menu === "general"
-              ? platosPorId[dia.plato_general_id]
-              : pedido?.tipo_menu === "opcional"
-                ? platosPorId[dia.plato_opcional_id]
+            principal?.tipo_menu === "general"
+              ? menusPorId[dia.menu_general_id]
+              : principal?.tipo_menu === "opcional"
+                ? menusPorId[dia.menu_opcional_id]
                 : null,
-          respondio: Boolean(pedido) && pedido.tipo_menu !== "no_come",
+          respondio: Boolean(principal) && principal.tipo_menu !== "no_come",
+          especial: especial
+            ? `${especial.plato} × ${especial.cantidad}`
+            : null,
         };
       }),
-    [diasConSemana, pedidosCliente, platosPorId],
+    [diasConSemana, pedidosCliente, menusPorId],
   );
 
   const hoy = hoyISO();
@@ -158,6 +172,7 @@ export default function HistorialCliente() {
                       <th>Semana</th>
                       <th>Eligió</th>
                       <th>Plato</th>
+                      <th>Especial</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -179,6 +194,7 @@ export default function HistorialCliente() {
                           {f.eleccion}
                         </td>
                         <td>{f.plato ?? "—"}</td>
+                        <td className="muted-cell">{f.especial ?? "—"}</td>
                       </tr>
                     ))}
                   </tbody>

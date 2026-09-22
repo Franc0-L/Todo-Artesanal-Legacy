@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 import AdminLayout, { cardStyle } from "./AdminLayout.jsx";
 
@@ -331,6 +332,12 @@ export default function Clientes() {
                     </td>
                     <td>
                       <div className="inline-actions">
+                        <Link
+                          to={`/admin/clientes/${cliente.id}`}
+                          className="secondary-button"
+                        >
+                          Ver ficha
+                        </Link>
                         <button
                           onClick={() => copiarLink(cliente)}
                           className="secondary-button"

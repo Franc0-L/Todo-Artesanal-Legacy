@@ -21,8 +21,10 @@ export default function AdminPanel() {
   const [dias, setDias] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [pedidos, setPedidos] = useState({});
+  const [especiales, setEspeciales] = useState({});
   const [copiado, setCopiado] = useState(null);
   const [guardandoCeldas, setGuardandoCeldas] = useState({});
+  const [guardandoEspeciales, setGuardandoEspeciales] = useState({});
   const [error, setError] = useState("");
   const [cargandoDatos, setCargandoDatos] = useState(true);
 
@@ -64,30 +66,43 @@ export default function AdminPanel() {
       setDias([]);
       setClientes([]);
       setPedidos({});
+      setEspeciales({});
       setCargandoDatos(false);
       return;
     }
 
-    const [diasResult, clientesResult, pedidosResult] = await Promise.all([
-      supabase
-        .from("dias_menu")
-        .select("*")
-        .eq("semana_id", semanaActiva.id)
-        .order("fecha"),
+    const [diasResult, clientesResult, pedidosResult, especialesResult] =
+      await Promise.all([
+        supabase
+          .from("dias_menu")
+          .select("*")
+          .eq("semana_id", semanaActiva.id)
+          .order("fecha"),
 
-      supabase.from("clientes").select("*").eq("activo", true).order("nombre"),
+        supabase
+          .from("clientes")
+          .select("*")
+          .eq("activo", true)
+          .order("nombre"),
 
-      supabase
-        .from("vista_pedidos_semana")
-        .select("*")
-        .eq("semana_id", semanaActiva.id),
-    ]);
+        supabase
+          .from("vista_pedidos_semana")
+          .select("*")
+          .eq("semana_id", semanaActiva.id),
+
+        supabase.from("menus").select("id, nombre").eq("tipo", "especial"),
+      ]);
 
     if (cargaId !== cargaIdRef.current) {
       return;
     }
 
-    if (diasResult.error || clientesResult.error || pedidosResult.error) {
+    if (
+      diasResult.error ||
+      clientesResult.error ||
+      pedidosResult.error ||
+      especialesResult.error
+    ) {
       setCargandoDatos(false);
       setError(
         "No pudimos cargar los pedidos. Probá de nuevo en unos minutos.",
@@ -99,6 +114,10 @@ export default function AdminPanel() {
 
     const mapaClientes = Object.fromEntries(
       clientesCargados.map((cliente) => [cliente.id, cliente]),
+    );
+
+    const mapaEspeciales = Object.fromEntries(
+      (especialesResult.data ?? []).map((e) => [e.id, e.nombre]),
     );
 
     const mapaPedidoClave = new Map();
@@ -118,11 +137,24 @@ export default function AdminPanel() {
       if (!mapa[pedido.cliente_id]) {
         mapa[pedido.cliente_id] = {};
       }
+      if (!mapa[pedido.cliente_id][pedido.dia_menu_id]) {
+        mapa[pedido.cliente_id][pedido.dia_menu_id] = {
+          tipo_menu: null,
+          monto: 0,
+          especialCantidad: 0,
+          especialMonto: 0,
+        };
+      }
 
-      mapa[pedido.cliente_id][pedido.dia_menu_id] = {
-        tipo_menu: pedido.tipo_menu,
-        monto: Number(pedido.monto ?? 0),
-      };
+      const entrada = mapa[pedido.cliente_id][pedido.dia_menu_id];
+
+      if (pedido.tipo_menu === "especial") {
+        entrada.especialCantidad = pedido.cantidad ?? 0;
+        entrada.especialMonto = Number(pedido.monto ?? 0);
+      } else {
+        entrada.tipo_menu = pedido.tipo_menu;
+        entrada.monto = Number(pedido.monto ?? 0);
+      }
     }
 
     if (cargaId !== cargaIdRef.current) {
@@ -135,6 +167,7 @@ export default function AdminPanel() {
     setSemana(semanaActiva);
     setDias(diasResult.data ?? []);
     setClientes(clientesCargados);
+    setEspeciales(mapaEspeciales);
 
     pedidoIdAClaveRef.current = mapaPedidoClave;
 
@@ -239,6 +272,55 @@ export default function AdminPanel() {
     }, 3000);
   }
 
+  async function cambiarEspecial(cliente, dia) {
+    const clave = `${cliente.id}:${dia.id}`;
+
+    if (guardandoEspeciales[clave]) {
+      return;
+    }
+
+    const actual = pedidos[cliente.id]?.[dia.id]?.especialCantidad ?? 0;
+    const nombreEspecial = especiales[dia.menu_especial_id] ?? "especial";
+
+    const respuesta = window.prompt(
+      `Cantidad de "${nombreEspecial}" para ${cliente.nombre} (0 para quitar):`,
+      String(actual),
+    );
+
+    if (respuesta === null) {
+      return;
+    }
+
+    const cantidad = Math.max(0, Math.trunc(Number(respuesta)) || 0);
+
+    if (cantidad === actual) {
+      return;
+    }
+
+    setGuardandoEspeciales((prev) => ({ ...prev, [clave]: true }));
+
+    const { error: errorGuardado } = await supabase.rpc("admin_set_especial", {
+      p_cliente_id: cliente.id,
+      p_dia_menu_id: dia.id,
+      p_cantidad: cantidad,
+    });
+
+    setGuardandoEspeciales((prev) => ({ ...prev, [clave]: false }));
+
+    if (errorGuardado) {
+      console.error(errorGuardado);
+      setError(
+        errorGuardado.message?.includes("todavía no eligió")
+          ? "Ese cliente todavía no tiene general u opcional elegido ese día."
+          : "No pudimos guardar el especial. Volvé a intentarlo.",
+      );
+      return;
+    }
+
+    await cargarDatos();
+    await avisarCliente(cliente.token, { diaMenuId: dia.id });
+  }
+
   async function copiarLink(cliente) {
     const url = `${window.location.origin}/menu/${cliente.token}`;
 
@@ -296,7 +378,8 @@ export default function AdminPanel() {
 
   const totalPorCliente = (clienteId) =>
     Object.values(pedidos[clienteId] ?? {}).reduce(
-      (acc, pedido) => acc + Number(pedido.monto ?? 0),
+      (acc, pedido) =>
+        acc + Number(pedido.monto ?? 0) + Number(pedido.especialMonto ?? 0),
       0,
     );
 
@@ -341,12 +424,18 @@ export default function AdminPanel() {
                 {dias.map((dia) => {
                   const esHoy = dia.fecha === hoy;
                   const esPasado = dia.fecha < hoy;
+                  const nombreEspecial = especiales[dia.menu_especial_id];
                   return (
                     <th
                       key={dia.id}
                       className={`align-center${esHoy ? " day-header-today" : ""}${esPasado ? " day-header-past" : ""}`}
                     >
                       {DIA_LABEL[dia.dia_semana].slice(0, 3)}
+                      {nombreEspecial && (
+                        <span className="day-header-especial">
+                          🌙 {nombreEspecial}
+                        </span>
+                      )}
                     </th>
                   );
                 })}
@@ -365,6 +454,8 @@ export default function AdminPanel() {
                   {dias.map((dia) => {
                     const tipo =
                       pedidos[cliente.id]?.[dia.id]?.tipo_menu ?? null;
+                    const especialCantidad =
+                      pedidos[cliente.id]?.[dia.id]?.especialCantidad ?? 0;
                     const esPasado = dia.fecha < hoy;
 
                     return (
@@ -380,6 +471,18 @@ export default function AdminPanel() {
                         >
                           {tipo ? ETIQUETA_CELDA[tipo] : "–"}
                         </button>
+                        {dia.menu_especial_id && (
+                          <button
+                            onClick={() => cambiarEspecial(cliente, dia)}
+                            disabled={
+                              guardandoEspeciales[`${cliente.id}:${dia.id}`]
+                            }
+                            aria-label={`${cliente.nombre}, especial de ${DIA_LABEL[dia.dia_semana]}: ${especialCantidad}`}
+                            className={`order-cell-especial${especialCantidad > 0 ? " order-cell-especial-activo" : ""}`}
+                          >
+                            {especialCantidad > 0 ? especialCantidad : "+"}
+                          </button>
+                        )}
                       </td>
                     );
                   })}
@@ -447,6 +550,11 @@ export default function AdminPanel() {
           <Leyenda color="var(--color-muted-bg)" texto="N no come" />
 
           <Leyenda color="transparent" borde texto="– sin responder" />
+
+          <Leyenda
+            color="var(--color-clay-bg)"
+            texto="🌙 cantidad de especial pedido"
+          />
         </div>
       </div>
     </AdminLayout>

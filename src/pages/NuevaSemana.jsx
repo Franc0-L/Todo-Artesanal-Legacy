@@ -20,7 +20,7 @@ function sumarDias(fechaISO, n) {
 }
 
 function diaVacio() {
-  return { menu_general_id: "", menu_opcional_id: "" };
+  return { menu_general_id: "", menu_opcional_id: "", menu_especial_id: "" };
 }
 
 function elegirSiguiente(
@@ -56,6 +56,7 @@ export default function NuevaSemana() {
   const [semanaActivaActual, setSemanaActivaActual] = useState(null);
   const [semanasAnteriores, setSemanasAnteriores] = useState([]);
   const [menus, setMenus] = useState([]);
+  const [especiales, setEspeciales] = useState([]);
   const [cargandoMenus, setCargandoMenus] = useState(true);
 
   const [fechaInicio, setFechaInicio] = useState(proximoLunes());
@@ -74,31 +75,42 @@ export default function NuevaSemana() {
     let activo = true;
 
     async function cargarDatos() {
-      const [semanaResult, semanasAnterioresResult, menusResult] =
-        await Promise.all([
-          supabase
-            .from("semanas")
-            .select("fecha_inicio")
-            .eq("activa", true)
-            .maybeSingle(),
-          supabase
-            .from("semanas")
-            .select("id, fecha_inicio")
-            .order("fecha_inicio", { ascending: false })
-            .limit(15),
-          supabase
-            .from("vista_uso_menus")
-            .select("*")
-            .eq("activo", true)
-            .order("nombre"),
-        ]);
+      const [
+        semanaResult,
+        semanasAnterioresResult,
+        menusResult,
+        especialesResult,
+      ] = await Promise.all([
+        supabase
+          .from("semanas")
+          .select("fecha_inicio")
+          .eq("activa", true)
+          .maybeSingle(),
+        supabase
+          .from("semanas")
+          .select("id, fecha_inicio")
+          .order("fecha_inicio", { ascending: false })
+          .limit(15),
+        supabase
+          .from("vista_uso_menus")
+          .select("*")
+          .eq("activo", true)
+          .order("nombre"),
+        supabase
+          .from("menus")
+          .select("id, nombre")
+          .eq("tipo", "especial")
+          .eq("activo", true)
+          .order("nombre"),
+      ]);
 
       if (!activo) return;
 
       if (
         semanaResult.error ||
         semanasAnterioresResult.error ||
-        menusResult.error
+        menusResult.error ||
+        especialesResult.error
       ) {
         setError("No pudimos cargar los datos. Probá de nuevo.");
       }
@@ -106,6 +118,7 @@ export default function NuevaSemana() {
       setSemanaActivaActual(semanaResult.data ?? null);
       setSemanasAnteriores(semanasAnterioresResult.data ?? []);
       setMenus(menusResult.data ?? []);
+      setEspeciales(especialesResult.data ?? []);
       setCargandoMenus(false);
     }
 
@@ -158,7 +171,11 @@ export default function NuevaSemana() {
         general,
         categoriaGeneral,
       );
-      nuevos[dia] = { menu_general_id: general, menu_opcional_id: opcional };
+      nuevos[dia] = {
+        menu_general_id: general,
+        menu_opcional_id: opcional,
+        menu_especial_id: dias[dia].menu_especial_id,
+      };
     }
     setDias(nuevos);
   }
@@ -170,7 +187,7 @@ export default function NuevaSemana() {
     setError("");
     const { data, error: fetchError } = await supabase
       .from("dias_menu")
-      .select("dia_semana, menu_general_id, menu_opcional_id")
+      .select("dia_semana, menu_general_id, menu_opcional_id, menu_especial_id")
       .eq("semana_id", semanaId);
     setDuplicando(false);
 
@@ -180,6 +197,7 @@ export default function NuevaSemana() {
     }
 
     const idsActivos = new Set(menus.map((m) => m.id));
+    const idsEspecialesActivos = new Set(especiales.map((e) => e.id));
     const nuevos = Object.fromEntries(DIAS_SEMANA.map((d) => [d, diaVacio()]));
     let huboOmitidos = false;
 
@@ -191,10 +209,14 @@ export default function NuevaSemana() {
       const opcional = idsActivos.has(fila.menu_opcional_id)
         ? fila.menu_opcional_id
         : "";
+      const especial = idsEspecialesActivos.has(fila.menu_especial_id)
+        ? fila.menu_especial_id
+        : "";
       if (!general || !opcional) huboOmitidos = true;
       nuevos[fila.dia_semana] = {
         menu_general_id: general,
         menu_opcional_id: opcional,
+        menu_especial_id: especial,
       };
     }
 
@@ -240,6 +262,7 @@ export default function NuevaSemana() {
       fecha: sumarDias(fechaInicio, DIAS_SEMANA.indexOf(d)),
       menu_general_id: dias[d].menu_general_id,
       menu_opcional_id: dias[d].menu_opcional_id,
+      menu_especial_id: dias[d].menu_especial_id || null,
     }));
 
     setGuardando(true);
@@ -472,6 +495,22 @@ export default function NuevaSemana() {
                       </option>
                     );
                   })}
+                </select>
+                <select
+                  id={`${dia}-especial`}
+                  name={`${dia}-especial`}
+                  value={dias[dia].menu_especial_id}
+                  onChange={(e) =>
+                    actualizarDia(dia, "menu_especial_id", e.target.value)
+                  }
+                  className="control"
+                >
+                  <option value="">Sin especial ese día</option>
+                  {especiales.map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.nombre}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>

@@ -12,6 +12,7 @@ const CLIMAS = [
 export default function Menus() {
   const [menus, setMenus] = useState([]);
   const [platos, setPlatos] = useState([]);
+  const [especiales, setEspeciales] = useState([]);
   const [error, setError] = useState("");
 
   const [nuevoNombre, setNuevoNombre] = useState("");
@@ -20,22 +21,28 @@ export default function Menus() {
   const [nuevaGuarnicion, setNuevaGuarnicion] = useState("");
   const [guardandoNuevo, setGuardandoNuevo] = useState(false);
 
+  const [nuevoNombreEspecial, setNuevoNombreEspecial] = useState("");
+  const [nuevoPrecioEspecial, setNuevoPrecioEspecial] = useState("");
+  const [guardandoEspecial, setGuardandoEspecial] = useState(false);
+
   const cargarDatos = useCallback(async () => {
-    const [menusResult, platosResult] = await Promise.all([
+    const [menusResult, platosResult, especialesResult] = await Promise.all([
       supabase.from("vista_menus_compuestos").select("*").order("nombre"),
       supabase
         .from("platos")
         .select("id, nombre")
         .eq("activo", true)
         .order("nombre"),
+      supabase.from("menus").select("*").eq("tipo", "especial").order("nombre"),
     ]);
-    if (menusResult.error || platosResult.error) {
+    if (menusResult.error || platosResult.error || especialesResult.error) {
       setError("No pudimos cargar los menús. Probá de nuevo en unos minutos.");
       return;
     }
     setError("");
     setMenus(menusResult.data ?? []);
     setPlatos(platosResult.data ?? []);
+    setEspeciales(especialesResult.data ?? []);
   }, []);
 
   useEffect(() => {
@@ -53,6 +60,22 @@ export default function Menus() {
     if (updateError) {
       setError(
         `No pudimos guardar el cambio en "${menu.nombre}". Probá de nuevo.`,
+      );
+      cargarDatos();
+    }
+  }
+
+  async function actualizarCampoEspecial(especial, campo, valor) {
+    setEspeciales((prev) =>
+      prev.map((e) => (e.id === especial.id ? { ...e, [campo]: valor } : e)),
+    );
+    const { error: updateError } = await supabase
+      .from("menus")
+      .update({ [campo]: valor })
+      .eq("id", especial.id);
+    if (updateError) {
+      setError(
+        `No pudimos guardar el cambio en "${especial.nombre}". Probá de nuevo.`,
       );
       cargarDatos();
     }
@@ -91,6 +114,27 @@ export default function Menus() {
     setNuevoClima("cualquiera");
     setNuevoPrincipal("");
     setNuevaGuarnicion("");
+    cargarDatos();
+  }
+
+  async function crearEspecial(e) {
+    e.preventDefault();
+    if (!nuevoNombreEspecial.trim() || nuevoPrecioEspecial === "") return;
+
+    setGuardandoEspecial(true);
+    const { error: rpcError } = await supabase.rpc("crear_menu_especial", {
+      p_nombre: nuevoNombreEspecial.trim(),
+      p_precio_base: Number(nuevoPrecioEspecial),
+    });
+    setGuardandoEspecial(false);
+
+    if (rpcError) {
+      console.error(rpcError);
+      setError("No pudimos crear el especial. Probá de nuevo.");
+      return;
+    }
+    setNuevoNombreEspecial("");
+    setNuevoPrecioEspecial("");
     cargarDatos();
   }
 
@@ -266,10 +310,123 @@ export default function Menus() {
         )}
 
         <p className="muted-copy page-footnote">
-          Los menús compuestos activos todavía no aparecen en "Cargar semana
-          nueva" — esa pantalla sigue trabajando con platos sueltos por ahora.
-          Falta conectar ese paso.
+          Los menús compuestos activos ya aparecen como opción de general u
+          opcional en "Cargar semana nueva".
         </p>
+
+        <h2 className="page-title" style={{ marginTop: 32 }}>
+          Especiales del día
+        </h2>
+        <p className="page-lead">
+          Porciones sueltas (empanadas, tarta, pizza…) que un cliente puede
+          sumar a su pedido cuando Todo Artesanal las ofrece ese día — no tienen
+          categoría ni clima, y el precio es libre. Se asignan a un día puntual
+          desde "Cargar semana nueva".
+        </p>
+
+        <form onSubmit={crearEspecial} className="form-grid form-divider">
+          <label className="field field-care">
+            <span className="field-label">Especial nuevo</span>
+            <input
+              value={nuevoNombreEspecial}
+              onChange={(e) => setNuevoNombreEspecial(e.target.value)}
+              placeholder="Ej: Docena de empanadas"
+              className="control"
+            />
+          </label>
+          <label className="field field-phone">
+            <span className="field-label">Precio base</span>
+            <input
+              type="number"
+              min="0"
+              inputMode="decimal"
+              value={nuevoPrecioEspecial}
+              onChange={(e) => setNuevoPrecioEspecial(e.target.value)}
+              className="control"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={
+              guardandoEspecial ||
+              !nuevoNombreEspecial.trim() ||
+              nuevoPrecioEspecial === ""
+            }
+            className="primary-button"
+          >
+            Agregar
+          </button>
+        </form>
+
+        {especiales.length === 0 ? (
+          <p className="muted-copy">Todavía no cargaste ningún especial.</p>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table data-table-dishes">
+              <thead>
+                <tr>
+                  <th>Especial</th>
+                  <th>Precio base</th>
+                  <th className="align-center">Activo</th>
+                </tr>
+              </thead>
+              <tbody>
+                {especiales.map((especial) => (
+                  <tr key={especial.id}>
+                    <td>
+                      <input
+                        defaultValue={especial.nombre}
+                        onBlur={(e) =>
+                          e.target.value.trim() &&
+                          e.target.value !== especial.nombre &&
+                          actualizarCampoEspecial(
+                            especial,
+                            "nombre",
+                            e.target.value.trim(),
+                          )
+                        }
+                        className="cell-control"
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        min="0"
+                        defaultValue={especial.precio_base ?? ""}
+                        onBlur={(e) => {
+                          const valor = Number(e.target.value);
+                          if (
+                            e.target.value !== "" &&
+                            valor !== Number(especial.precio_base)
+                          )
+                            actualizarCampoEspecial(
+                              especial,
+                              "precio_base",
+                              valor,
+                            );
+                        }}
+                        className="cell-control cell-control-price"
+                      />
+                    </td>
+                    <td className="align-center">
+                      <input
+                        type="checkbox"
+                        checked={especial.activo}
+                        onChange={(e) =>
+                          actualizarCampoEspecial(
+                            especial,
+                            "activo",
+                            e.target.checked,
+                          )
+                        }
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </AdminLayout>
   );
