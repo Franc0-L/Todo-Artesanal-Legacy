@@ -10,9 +10,11 @@ const AdminPanel = lazy(() => import("./pages/AdminPanel.jsx"));
 const NuevaSemana = lazy(() => import("./pages/NuevaSemana.jsx"));
 const Platos = lazy(() => import("./pages/Platos.jsx"));
 const Clientes = lazy(() => import("./pages/Clientes.jsx"));
+const FichaCliente = lazy(() => import("./pages/FichaCliente.jsx"));
 const HistorialSemanas = lazy(() => import("./pages/HistorialSemanas.jsx"));
 const Cancelaciones = lazy(() => import("./pages/Cancelaciones.jsx"));
 const HistorialCliente = lazy(() => import("./pages/HistorialCliente.jsx"));
+const Menus = lazy(() => import("./pages/Menus.jsx"));
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
@@ -24,7 +26,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
           <Route path="/admin" element={<AdminPanel />} />
           <Route path="/admin/nueva-semana" element={<NuevaSemana />} />
           <Route path="/admin/platos" element={<Platos />} />
+          <Route path="/admin/menus" element={<Menus />} />
           <Route path="/admin/clientes" element={<Clientes />} />
+          <Route path="/admin/clientes/:id" element={<FichaCliente />} />
           <Route
             path="/admin/historial-semanas"
             element={<HistorialSemanas />}

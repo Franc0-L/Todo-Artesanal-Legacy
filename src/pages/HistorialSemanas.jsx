@@ -9,33 +9,33 @@ export default function HistorialSemanas() {
   const [dias, setDias] = useState([]);
   const [pedidos, setPedidos] = useState([]);
   const [totalClientesActivos, setTotalClientesActivos] = useState(0);
-  const [platosPorId, setPlatosPorId] = useState({});
+  const [menusPorId, setMenusPorId] = useState({});
   const [error, setError] = useState("");
   const [cargando, setCargando] = useState(true);
 
   useEffect(() => {
     async function cargarInicial() {
-      const [semanasResult, platosResult, clientesResult] = await Promise.all([
+      const [semanasResult, menusResult, clientesResult] = await Promise.all([
         supabase
           .from("semanas")
           .select("*")
           .order("fecha_inicio", { ascending: false }),
-        supabase.from("platos").select("id, nombre"),
+        supabase.from("menus").select("id, nombre"),
         supabase
           .from("clientes")
           .select("id", { count: "exact", head: true })
           .eq("activo", true),
       ]);
-      if (semanasResult.error || platosResult.error || clientesResult.error) {
+      if (semanasResult.error || menusResult.error || clientesResult.error) {
         setError("No pudimos cargar el historial. Probá de nuevo.");
         setCargando(false);
         return;
       }
       const semanasData = semanasResult.data;
-      const platosData = platosResult.data;
+      const menusData = menusResult.data;
       setSemanas(semanasData ?? []);
-      setPlatosPorId(
-        Object.fromEntries((platosData ?? []).map((p) => [p.id, p.nombre])),
+      setMenusPorId(
+        Object.fromEntries((menusData ?? []).map((m) => [m.id, m.nombre])),
       );
       setTotalClientesActivos(clientesResult.count ?? 0);
       if (semanasData?.length) setSemanaId(semanasData[0].id);
@@ -102,8 +102,8 @@ export default function HistorialSemanas() {
           id: dia.id,
           diaSemana: dia.dia_semana,
           fecha: dia.fecha,
-          general: platosPorId[dia.plato_general_id] ?? "—",
-          opcional: platosPorId[dia.plato_opcional_id] ?? "—",
+          general: menusPorId[dia.menu_general_id] ?? "—",
+          opcional: menusPorId[dia.menu_opcional_id] ?? "—",
           countGeneral: general,
           countOpcional: opcional,
           countNoCome: noCome,
@@ -111,7 +111,7 @@ export default function HistorialSemanas() {
           total,
         };
       }),
-    [dias, pedidos, totalClientesActivos, platosPorId],
+    [dias, pedidos, totalClientesActivos, menusPorId],
   );
 
   const totalSemana = filas.reduce((acc, f) => acc + f.total, 0);

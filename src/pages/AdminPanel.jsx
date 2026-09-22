@@ -12,42 +12,30 @@ const ETIQUETA_CELDA = {
   no_come: "N",
 };
 
+function hoyISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function AdminPanel() {
   const [semana, setSemana] = useState(null);
   const [dias, setDias] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [pedidos, setPedidos] = useState({});
+  const [especiales, setEspeciales] = useState({});
   const [copiado, setCopiado] = useState(null);
   const [guardandoCeldas, setGuardandoCeldas] = useState({});
+  const [guardandoEspeciales, setGuardandoEspeciales] = useState({});
   const [error, setError] = useState("");
   const [cargandoDatos, setCargandoDatos] = useState(true);
 
-  /*
-   * Referencias para que Realtime tenga acceso a los datos
-   * actuales sin tener que recrear la suscripción.
-   */
   const semanaRef = useRef(null);
   const diasRef = useRef(new Set());
-
-  /*
-   * Identificador de la última carga de datos.
-   *
-   * Si hay dos cargas simultáneas, solamente la última
-   * puede modificar el estado.
-   */
+  const pedidoIdAClaveRef = useRef(new Map());
   const cargaIdRef = useRef(0);
 
-  /*
-   * Cambios realizados desde este panel.
-   *
-   * clave = clienteId:diaMenuId
-   */
   const cambiosLocalesRef = useRef(new Map());
 
   const cargarDatos = useCallback(async () => {
-    /*
-     * Esta carga recibe un ID único.
-     */
     const cargaId = ++cargaIdRef.current;
 
     setError("");
@@ -59,10 +47,6 @@ export default function AdminPanel() {
       .eq("activa", true)
       .maybeSingle();
 
-    /*
-     * Si mientras tanto empezó otra carga, descartamos
-     * completamente esta respuesta.
-     */
     if (cargaId !== cargaIdRef.current) {
       return;
     }
@@ -82,36 +66,43 @@ export default function AdminPanel() {
       setDias([]);
       setClientes([]);
       setPedidos({});
+      setEspeciales({});
       setCargandoDatos(false);
       return;
     }
 
-    const [diasResult, clientesResult, pedidosResult] = await Promise.all([
-      supabase
-        .from("dias_menu")
-        .select("*")
-        .eq("semana_id", semanaActiva.id)
-        .order("fecha"),
+    const [diasResult, clientesResult, pedidosResult, especialesResult] =
+      await Promise.all([
+        supabase
+          .from("dias_menu")
+          .select("*")
+          .eq("semana_id", semanaActiva.id)
+          .order("fecha"),
 
-      supabase.from("clientes").select("*").eq("activo", true).order("nombre"),
+        supabase
+          .from("clientes")
+          .select("*")
+          .eq("activo", true)
+          .order("nombre"),
 
-      supabase
-        .from("vista_pedidos_semana")
-        .select("*")
-        .eq("semana_id", semanaActiva.id),
-    ]);
+        supabase
+          .from("vista_pedidos_semana")
+          .select("*")
+          .eq("semana_id", semanaActiva.id),
 
-    /*
-     * Una carga posterior puede haber comenzado mientras
-     * estas tres consultas estaban ejecutándose.
-     *
-     * En ese caso esta respuesta ya no es válida.
-     */
+        supabase.from("menus").select("id, nombre").eq("tipo", "especial"),
+      ]);
+
     if (cargaId !== cargaIdRef.current) {
       return;
     }
 
-    if (diasResult.error || clientesResult.error || pedidosResult.error) {
+    if (
+      diasResult.error ||
+      clientesResult.error ||
+      pedidosResult.error ||
+      especialesResult.error
+    ) {
       setCargandoDatos(false);
       setError(
         "No pudimos cargar los pedidos. Probá de nuevo en unos minutos.",
@@ -125,9 +116,18 @@ export default function AdminPanel() {
       clientesCargados.map((cliente) => [cliente.id, cliente]),
     );
 
+    const mapaEspeciales = Object.fromEntries(
+      (especialesResult.data ?? []).map((e) => [e.id, e.nombre]),
+    );
+
+    const mapaPedidoClave = new Map();
     const mapa = {};
 
     for (const pedido of pedidosResult.data ?? []) {
+      mapaPedidoClave.set(
+        pedido.pedido_id,
+        `${pedido.cliente_id}:${pedido.dia_menu_id}`,
+      );
       const cliente = mapaClientes[pedido.cliente_id];
 
       if (!cliente) {
@@ -137,16 +137,26 @@ export default function AdminPanel() {
       if (!mapa[pedido.cliente_id]) {
         mapa[pedido.cliente_id] = {};
       }
+      if (!mapa[pedido.cliente_id][pedido.dia_menu_id]) {
+        mapa[pedido.cliente_id][pedido.dia_menu_id] = {
+          tipo_menu: null,
+          monto: 0,
+          especialCantidad: 0,
+          especialMonto: 0,
+        };
+      }
 
-      mapa[pedido.cliente_id][pedido.dia_menu_id] = {
-        tipo_menu: pedido.tipo_menu,
-        monto: Number(pedido.monto ?? 0),
-      };
+      const entrada = mapa[pedido.cliente_id][pedido.dia_menu_id];
+
+      if (pedido.tipo_menu === "especial") {
+        entrada.especialCantidad = pedido.cantidad ?? 0;
+        entrada.especialMonto = Number(pedido.monto ?? 0);
+      } else {
+        entrada.tipo_menu = pedido.tipo_menu;
+        entrada.monto = Number(pedido.monto ?? 0);
+      }
     }
 
-    /*
-     * Última comprobación antes de tocar el estado.
-     */
     if (cargaId !== cargaIdRef.current) {
       return;
     }
@@ -157,113 +167,60 @@ export default function AdminPanel() {
     setSemana(semanaActiva);
     setDias(diasResult.data ?? []);
     setClientes(clientesCargados);
+    setEspeciales(mapaEspeciales);
+
+    pedidoIdAClaveRef.current = mapaPedidoClave;
+
     setPedidos(mapa);
     setCargandoDatos(false);
   }, []);
 
-  /*
-   * Carga inicial.
-   */
   useEffect(() => {
     cargarDatos();
   }, [cargarDatos]);
 
-  /*
-   * REALTIME
-   *
-   * Esta suscripción se crea UNA SOLA VEZ.
-   */
   useEffect(() => {
+    function manejarEventoRealtime(tabla, payload) {
+      const fila = payload.new ?? payload.old;
+      if (!fila) return;
+
+      let clave;
+      if (tabla === "pedidos") {
+        if (fila.dia_menu_id && !diasRef.current.has(fila.dia_menu_id)) return;
+        clave = `${fila.cliente_id}:${fila.dia_menu_id}`;
+      } else {
+        clave = pedidoIdAClaveRef.current.get(fila.pedido_id);
+        if (!clave) {
+          cargarDatos();
+          return;
+        }
+      }
+
+      if (cambiosLocalesRef.current.has(clave)) {
+        return;
+      }
+
+      cargarDatos();
+    }
+
     const canal = supabase
       .channel("pedidos-en-vivo")
       .on(
         "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "pedidos",
-        },
-        (payload) => {
-          const pedido = payload.new;
-          const pedidoAnterior = payload.old;
-
-          const clienteId = pedido?.cliente_id ?? pedidoAnterior?.cliente_id;
-
-          const diaMenuId = pedido?.dia_menu_id ?? pedidoAnterior?.dia_menu_id;
-
-          if (!clienteId || !diaMenuId) {
-            return;
-          }
-
-          if (!diasRef.current.has(diaMenuId)) {
-            return;
-          }
-
-          const clave = `${clienteId}:${diaMenuId}`;
-
-          /*
-           * Si este evento corresponde al mismo cambio que
-           * acabamos de realizar localmente, no lo aplicamos
-           * nuevamente.
-           */
-          const cambioLocal = cambiosLocalesRef.current.get(clave);
-
-          const tipoRealtime =
-            payload.eventType === "DELETE" ? null : (pedido?.tipo_menu ?? null);
-
-          if (cambioLocal && cambioLocal.tipo_menu === tipoRealtime) {
-            return;
-          }
-
-          const semanaActual = semanaRef.current;
-
-          if (!semanaActual) {
-            return;
-          }
-
-          setPedidos((prev) => {
-            const copia = { ...prev };
-
-            /*
-             * DELETE
-             */
-            if (payload.eventType === "DELETE") {
-              if (copia[clienteId]) {
-                copia[clienteId] = {
-                  ...copia[clienteId],
-                };
-
-                delete copia[clienteId][diaMenuId];
-              }
-
-              return copia;
-            }
-
-            /*
-             * INSERT / UPDATE
-             */
-            if (!pedido?.tipo_menu) {
-              return prev;
-            }
-
-            copia[clienteId] = {
-              ...copia[clienteId],
-              [diaMenuId]: {
-                tipo_menu: pedido.tipo_menu,
-                monto: Number(pedido.monto_aplicado ?? 0),
-              },
-            };
-
-            return copia;
-          });
-        },
+        { event: "*", schema: "public", table: "pedidos" },
+        (payload) => manejarEventoRealtime("pedidos", payload),
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "pedido_items" },
+        (payload) => manejarEventoRealtime("pedido_items", payload),
       )
       .subscribe();
 
     return () => {
       supabase.removeChannel(canal);
     };
-  }, []);
+  }, [cargarDatos]);
 
   async function cambiarCelda(cliente, diaMenuId) {
     const clave = `${cliente.id}:${diaMenuId}`;
@@ -280,10 +237,6 @@ export default function AdminPanel() {
 
     setGuardandoCeldas((prev) => ({ ...prev, [clave]: true }));
 
-    /*
-     * Guardamos el estado que esperamos que quede
-     * en Supabase.
-     */
     cambiosLocalesRef.current.set(clave, {
       tipo_menu: siguiente,
     });
@@ -294,10 +247,6 @@ export default function AdminPanel() {
       p_tipo_menu: siguiente,
     });
 
-    /*
-     * Si falló la operación, descartamos el cambio local
-     * y volvemos a consultar la BD.
-     */
     if (errorGuardado) {
       cambiosLocalesRef.current.delete(clave);
       setGuardandoCeldas((prev) => ({ ...prev, [clave]: false }));
@@ -314,11 +263,6 @@ export default function AdminPanel() {
 
     await avisarCliente(cliente.token, { diaMenuId, tipo: siguiente });
 
-    /*
-     * Conservamos la marca temporalmente para evitar que
-     * el evento Realtime correspondiente vuelva a pisar
-     * nuestro estado.
-     */
     window.setTimeout(() => {
       const cambio = cambiosLocalesRef.current.get(clave);
 
@@ -326,6 +270,55 @@ export default function AdminPanel() {
         cambiosLocalesRef.current.delete(clave);
       }
     }, 3000);
+  }
+
+  async function cambiarEspecial(cliente, dia) {
+    const clave = `${cliente.id}:${dia.id}`;
+
+    if (guardandoEspeciales[clave]) {
+      return;
+    }
+
+    const actual = pedidos[cliente.id]?.[dia.id]?.especialCantidad ?? 0;
+    const nombreEspecial = especiales[dia.menu_especial_id] ?? "especial";
+
+    const respuesta = window.prompt(
+      `Cantidad de "${nombreEspecial}" para ${cliente.nombre} (0 para quitar):`,
+      String(actual),
+    );
+
+    if (respuesta === null) {
+      return;
+    }
+
+    const cantidad = Math.max(0, Math.trunc(Number(respuesta)) || 0);
+
+    if (cantidad === actual) {
+      return;
+    }
+
+    setGuardandoEspeciales((prev) => ({ ...prev, [clave]: true }));
+
+    const { error: errorGuardado } = await supabase.rpc("admin_set_especial", {
+      p_cliente_id: cliente.id,
+      p_dia_menu_id: dia.id,
+      p_cantidad: cantidad,
+    });
+
+    setGuardandoEspeciales((prev) => ({ ...prev, [clave]: false }));
+
+    if (errorGuardado) {
+      console.error(errorGuardado);
+      setError(
+        errorGuardado.message?.includes("todavía no eligió")
+          ? "Ese cliente todavía no tiene general u opcional elegido ese día."
+          : "No pudimos guardar el especial. Volvé a intentarlo.",
+      );
+      return;
+    }
+
+    await cargarDatos();
+    await avisarCliente(cliente.token, { diaMenuId: dia.id });
   }
 
   async function copiarLink(cliente) {
@@ -381,9 +374,12 @@ export default function AdminPanel() {
     );
   }
 
+  const hoy = hoyISO();
+
   const totalPorCliente = (clienteId) =>
     Object.values(pedidos[clienteId] ?? {}).reduce(
-      (acc, pedido) => acc + Number(pedido.monto ?? 0),
+      (acc, pedido) =>
+        acc + Number(pedido.monto ?? 0) + Number(pedido.especialMonto ?? 0),
       0,
     );
 
@@ -391,6 +387,13 @@ export default function AdminPanel() {
     clientes.filter(
       (cliente) => pedidos[cliente.id]?.[diaMenuId]?.tipo_menu === tipo,
     ).length;
+
+  const sinResponderPorDia = (diaMenuId) => {
+    const general = totalRacionesPorDia(diaMenuId, "general");
+    const opcional = totalRacionesPorDia(diaMenuId, "opcional");
+    const noCome = totalRacionesPorDia(diaMenuId, "no_come");
+    return Math.max(clientes.length - general - opcional - noCome, 0);
+  };
 
   const totalSemana = clientes.reduce(
     (acc, cliente) => acc + totalPorCliente(cliente.id),
@@ -418,11 +421,24 @@ export default function AdminPanel() {
               <tr>
                 <th>Cliente</th>
 
-                {dias.map((dia) => (
-                  <th key={dia.id} className="align-center">
-                    {DIA_LABEL[dia.dia_semana].slice(0, 3)}
-                  </th>
-                ))}
+                {dias.map((dia) => {
+                  const esHoy = dia.fecha === hoy;
+                  const esPasado = dia.fecha < hoy;
+                  const nombreEspecial = especiales[dia.menu_especial_id];
+                  return (
+                    <th
+                      key={dia.id}
+                      className={`align-center${esHoy ? " day-header-today" : ""}${esPasado ? " day-header-past" : ""}`}
+                    >
+                      {DIA_LABEL[dia.dia_semana].slice(0, 3)}
+                      {nombreEspecial && (
+                        <span className="day-header-especial">
+                          🌙 {nombreEspecial}
+                        </span>
+                      )}
+                    </th>
+                  );
+                })}
 
                 <th className="align-right">Total</th>
 
@@ -438,9 +454,15 @@ export default function AdminPanel() {
                   {dias.map((dia) => {
                     const tipo =
                       pedidos[cliente.id]?.[dia.id]?.tipo_menu ?? null;
+                    const especialCantidad =
+                      pedidos[cliente.id]?.[dia.id]?.especialCantidad ?? 0;
+                    const esPasado = dia.fecha < hoy;
 
                     return (
-                      <td key={dia.id} className="align-center">
+                      <td
+                        key={dia.id}
+                        className={`align-center${esPasado ? " day-cell-past" : ""}`}
+                      >
                         <button
                           onClick={() => cambiarCelda(cliente, dia.id)}
                           aria-label={`${cliente.nombre}, ${DIA_LABEL[dia.dia_semana]}: ${tipo ? ETIQUETA_CELDA[tipo] : "sin responder"}`}
@@ -449,6 +471,18 @@ export default function AdminPanel() {
                         >
                           {tipo ? ETIQUETA_CELDA[tipo] : "–"}
                         </button>
+                        {dia.menu_especial_id && (
+                          <button
+                            onClick={() => cambiarEspecial(cliente, dia)}
+                            disabled={
+                              guardandoEspeciales[`${cliente.id}:${dia.id}`]
+                            }
+                            aria-label={`${cliente.nombre}, especial de ${DIA_LABEL[dia.dia_semana]}: ${especialCantidad}`}
+                            className={`order-cell-especial${especialCantidad > 0 ? " order-cell-especial-activo" : ""}`}
+                          >
+                            {especialCantidad > 0 ? especialCantidad : "+"}
+                          </button>
+                        )}
                       </td>
                     );
                   })}
@@ -488,6 +522,24 @@ export default function AdminPanel() {
 
                 <td></td>
               </tr>
+              <tr>
+                <td className="muted-cell">Sin responder</td>
+
+                {dias.map((dia) => {
+                  const sinResponder = sinResponderPorDia(dia.id);
+                  return (
+                    <td
+                      key={dia.id}
+                      className={`align-center${sinResponder > 0 ? " warning-cell" : " muted-cell"}`}
+                    >
+                      {sinResponder}
+                    </td>
+                  );
+                })}
+
+                <td></td>
+                <td></td>
+              </tr>
             </tfoot>
           </table>
         </div>
@@ -498,6 +550,11 @@ export default function AdminPanel() {
           <Leyenda color="var(--color-muted-bg)" texto="N no come" />
 
           <Leyenda color="transparent" borde texto="– sin responder" />
+
+          <Leyenda
+            color="var(--color-clay-bg)"
+            texto="🌙 cantidad de especial pedido"
+          />
         </div>
       </div>
     </AdminLayout>

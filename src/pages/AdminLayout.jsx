@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
 
 const NAV_ITEMS = [
   { to: "/admin", label: "Pedidos", end: true },
   { to: "/admin/nueva-semana", label: "Nueva semana" },
   { to: "/admin/platos", label: "Platos" },
+  { to: "/admin/menus", label: "Menús" },
   { to: "/admin/clientes", label: "Clientes" },
   { to: "/admin/historial-semanas", label: "Historial semanas" },
   { to: "/admin/cancelaciones", label: "Cancelaciones" },
@@ -23,8 +24,10 @@ export const cardStyle = {
 
 export default function AdminLayout({ children }) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [cargandoSesion, setCargandoSesion] = useState(true);
   const [errorAcceso, setErrorAcceso] = useState("");
+  const [menuAbierto, setMenuAbierto] = useState(false);
 
   useEffect(() => {
     let activo = true;
@@ -76,6 +79,10 @@ export default function AdminLayout({ children }) {
     };
   }, [navigate]);
 
+  useEffect(() => {
+    setMenuAbierto(false);
+  }, [location.pathname]);
+
   async function cerrarSesion() {
     await supabase.auth.signOut();
     navigate("/admin/login");
@@ -85,7 +92,7 @@ export default function AdminLayout({ children }) {
     return (
       <div className="admin-auth-state">
         <p role="alert">{errorAcceso}</p>
-        <button onClick={cerrarSesion} style={logoutStyle}>
+        <button onClick={cerrarSesion} className="admin-logout">
           Volver al login
         </button>
       </div>
@@ -103,7 +110,23 @@ export default function AdminLayout({ children }) {
           <NavLink className="admin-brand" to="/admin">
             Todo Artesanal
           </NavLink>
-          <nav className="admin-nav" aria-label="Navegación administrativa">
+          <button
+            type="button"
+            className="admin-menu-toggle"
+            aria-expanded={menuAbierto}
+            aria-controls="admin-nav"
+            onClick={() => setMenuAbierto((abierto) => !abierto)}
+          >
+            <span className="sr-only">
+              {menuAbierto ? "Cerrar menú" : "Abrir menú"}
+            </span>
+            <span className="hamburger-icon" aria-hidden="true" />
+          </button>
+          <nav
+            id="admin-nav"
+            className={`admin-nav${menuAbierto ? " admin-nav-open" : ""}`}
+            aria-label="Navegación administrativa"
+          >
             {NAV_ITEMS.map((item) => (
               <NavLink
                 key={item.to}
@@ -128,58 +151,3 @@ export default function AdminLayout({ children }) {
     </div>
   );
 }
-
-const headerStyle = {
-  background: "var(--color-surface)",
-  borderBottom: "1px solid var(--color-border)",
-  position: "sticky",
-  top: 0,
-  zIndex: 10,
-};
-
-const headerInnerStyle = {
-  maxWidth: 960,
-  margin: "0 auto",
-  padding: "14px 20px",
-  display: "flex",
-  alignItems: "center",
-  gap: 8,
-  flexWrap: "wrap",
-};
-
-const brandStyle = {
-  fontFamily: "var(--font-display)",
-  fontWeight: 600,
-  fontSize: 19,
-  color: "var(--color-clay-dark)",
-  marginRight: "auto",
-  paddingRight: 12,
-};
-
-const navStyle = {
-  display: "flex",
-  gap: 4,
-  flexWrap: "wrap",
-};
-
-function navLinkStyle(isActive) {
-  return {
-    padding: "7px 14px",
-    borderRadius: 999,
-    fontSize: 14,
-    fontWeight: 600,
-    textDecoration: "none",
-    color: isActive ? "#fff" : "var(--color-ink-muted)",
-    background: isActive ? "var(--color-clay)" : "transparent",
-    whiteSpace: "nowrap",
-  };
-}
-
-const logoutStyle = {
-  background: "none",
-  border: "none",
-  color: "var(--color-ink-muted)",
-  fontSize: 13,
-  whiteSpace: "nowrap",
-  marginLeft: 12,
-};

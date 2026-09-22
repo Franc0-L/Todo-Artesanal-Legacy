@@ -23,6 +23,8 @@ function formatUltimaVez(fechaISO) {
 export default function Platos() {
   const [platos, setPlatos] = useState([]);
   const [error, setError] = useState("");
+  const [busqueda, setBusqueda] = useState("");
+  const [filtroActivo, setFiltroActivo] = useState("todos");
 
   const [nuevoNombre, setNuevoNombre] = useState("");
   const [nuevaCategoria, setNuevaCategoria] = useState("");
@@ -86,6 +88,18 @@ export default function Platos() {
     }
   }
 
+  const platosFiltrados = platos.filter((p) => {
+    if (filtroActivo === "activos" && !p.activo) return false;
+    if (filtroActivo === "inactivos" && p.activo) return false;
+
+    const termino = busqueda.trim().toLowerCase();
+    if (!termino) return true;
+    return (
+      p.nombre.toLowerCase().includes(termino) ||
+      (p.categoria ?? "").toLowerCase().includes(termino)
+    );
+  });
+
   return (
     <AdminLayout>
       <div className="page-card" style={cardStyle}>
@@ -95,6 +109,32 @@ export default function Platos() {
           <p role="alert" className="alert-copy">
             {error}
           </p>
+        )}
+
+        {platos.length > 0 && (
+          <div className="form-grid week-settings">
+            <label className="field week-weather-field">
+              <span className="field-label">Buscar plato</span>
+              <input
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                placeholder="Nombre o categoría…"
+                className="control"
+              />
+            </label>
+            <label className="field week-weather-field">
+              <span className="field-label">Estado</span>
+              <select
+                value={filtroActivo}
+                onChange={(e) => setFiltroActivo(e.target.value)}
+                className="control"
+              >
+                <option value="todos">Todos</option>
+                <option value="activos">Solo activos</option>
+                <option value="inactivos">Solo inactivos</option>
+              </select>
+            </label>
+          </div>
         )}
 
         <form onSubmit={agregarPlato} className="form-grid form-divider">
@@ -147,6 +187,10 @@ export default function Platos() {
 
         {platos.length === 0 ? (
           <p className="muted-copy">Todavía no cargaste ningún plato.</p>
+        ) : platosFiltrados.length === 0 ? (
+          <p className="muted-copy">
+            Ningún plato coincide con los filtros elegidos.
+          </p>
         ) : (
           <div className="table-scroll">
             <table className="data-table data-table-dishes">
@@ -160,7 +204,7 @@ export default function Platos() {
                 </tr>
               </thead>
               <tbody>
-                {platos.map((plato) => (
+                {platosFiltrados.map((plato) => (
                   <tr key={plato.id}>
                     <td>
                       <input

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../lib/supabaseClient";
-import { DIA_LABEL, formatFecha } from "../lib/format";
+import { DIA_LABEL, formatFecha, formatMonto } from "../lib/format";
 
 const OPCIONES = [
   { valor: "general", etiqueta: "General" },
@@ -21,6 +21,7 @@ export default function ClientOrder() {
   const [nombre, setNombre] = useState("");
   const [semanaInicio, setSemanaInicio] = useState(null);
   const [guardando, setGuardando] = useState({});
+  const [guardandoEspecial, setGuardandoEspecial] = useState({});
   const [errorGuardado, setErrorGuardado] = useState("");
   const canalRef = useRef(null);
 
@@ -123,6 +124,49 @@ export default function ClientOrder() {
     setGuardando((prev) => ({ ...prev, [diaMenuId]: false }));
   }
 
+  async function cambiarCantidadEspecial(diaMenuId, nuevaCantidad) {
+    const cantidadAnterior =
+      dias.find((d) => d.diaMenuId === diaMenuId)?.especialCantidad ?? 0;
+    if (nuevaCantidad === cantidadAnterior) return;
+
+    setErrorGuardado("");
+    setGuardandoEspecial((prev) => ({ ...prev, [diaMenuId]: true }));
+    setDias((prev) =>
+      prev.map((d) =>
+        d.diaMenuId === diaMenuId
+          ? { ...d, especialCantidad: nuevaCantidad }
+          : d,
+      ),
+    );
+
+    const { error } = await supabase.rpc("submit_especial", {
+      p_token: token,
+      p_dia_menu_id: diaMenuId,
+      p_cantidad: nuevaCantidad,
+    });
+
+    if (error) {
+      console.error(error);
+      setDias((prev) =>
+        prev.map((d) =>
+          d.diaMenuId === diaMenuId
+            ? { ...d, especialCantidad: cantidadAnterior }
+            : d,
+        ),
+      );
+      setErrorGuardado(
+        "No pudimos guardar el especial. Revisá tu conexión e intentá de nuevo.",
+      );
+    } else {
+      await canalRef.current?.send({
+        type: "broadcast",
+        event: "order_changed",
+        payload: { diaMenuId },
+      });
+    }
+    setGuardandoEspecial((prev) => ({ ...prev, [diaMenuId]: false }));
+  }
+
   if (estado === "cargando") {
     return <Centrado>Cargando tu menú de la semana…</Centrado>;
   }
@@ -195,6 +239,51 @@ export default function ClientOrder() {
                 );
               })}
             </div>
+
+            {dia.especialMenuId &&
+              (dia.eleccion === "general" || dia.eleccion === "opcional") && (
+                <div className="client-especial">
+                  <p className="client-especial-label">
+                    ¿Sumás {dia.especialNombre} ese día?{" "}
+                    {dia.especialPrecio != null &&
+                      `(${formatMonto(dia.especialPrecio)} c/u)`}
+                  </p>
+                  <div className="client-especial-stepper">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        cambiarCantidadEspecial(
+                          dia.diaMenuId,
+                          Math.max(0, dia.especialCantidad - 1),
+                        )
+                      }
+                      disabled={
+                        guardandoEspecial[dia.diaMenuId] ||
+                        dia.especialCantidad === 0
+                      }
+                      className="secondary-button"
+                    >
+                      −
+                    </button>
+                    <span className="client-especial-cantidad">
+                      {dia.especialCantidad}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        cambiarCantidadEspecial(
+                          dia.diaMenuId,
+                          dia.especialCantidad + 1,
+                        )
+                      }
+                      disabled={guardandoEspecial[dia.diaMenuId]}
+                      className="secondary-button"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              )}
           </div>
         ))}
 
@@ -217,24 +306,17 @@ function mapearDias(data) {
     platoOpcional: fila.plato_opcional,
     platoOpcionalClima: fila.plato_opcional_clima,
     eleccion: fila.eleccion_actual,
+    especialMenuId: fila.especial_menu_id,
+    especialNombre: fila.especial_nombre,
+    especialPrecio: fila.especial_precio,
+    especialCantidad: fila.especial_cantidad_actual ?? 0,
   }));
 }
 
 function Centrado({ children }) {
   return (
-    <div
-      style={{
-        minHeight: "100%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 24,
-        textAlign: "center",
-        color: "var(--color-ink-muted)",
-        fontSize: 17,
-      }}
-    >
-      <p style={{ maxWidth: 320 }}>{children}</p>
+    <div className="client-centered">
+      <p>{children}</p>
     </div>
   );
 }
