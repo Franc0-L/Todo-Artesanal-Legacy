@@ -83,8 +83,25 @@ export function SemanasPage() {
   }, []);
 
   useEffect(() => {
-    void loadWeeks();
+    function run() {
+      void loadWeeks();
+    }
+    run();
   }, [loadWeeks]);
+
+  // Tras un borrado, si la página quedó vacía volvemos una atrás; si no,
+  // recargamos con los mismos filtros.
+  const handleWeekDeleted = useCallback(() => {
+    setSelectedWeekId(null);
+    setCreateDrawerOpen(false);
+
+    if (items.length <= 1 && page > 1) {
+      setPage(page - 1);
+      return;
+    }
+
+    void loadWeeks();
+  }, [items.length, page, loadWeeks]);
 
   function handleStatusChange(value: StatusFilter) {
     setPage(1);
@@ -224,6 +241,7 @@ export function SemanasPage() {
         onClose={handleCloseDrawer}
         onCreated={handleWeekCreated}
         onSaved={handleWeekSaved}
+        onDeleted={handleWeekDeleted}
       />
     </section>
   );

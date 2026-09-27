@@ -402,6 +402,15 @@ sequenceDiagram
 - El `DELETE` falla con FK violation.
 - Aunque no fallara, borrarlo eliminaría historia.
 
+**Excepción: borrado definitivo solo sin historial:**
+
+La ficha de cliente incluye un botón "Eliminar definitivamente" (con
+confirmación de advertencia) que llama a `deleteClient`. Solo tiene éxito
+si el cliente no tiene pedidos, cancelaciones ni semanas que lo
+referencien; si los tiene, la DB responde con FK violation (23503) y la
+UI muestra el mensaje "usá Desactivar". Como la historia —si existe—
+impide el DELETE, el borrado nunca puede borrar hechos pasados.
+
 **Efecto de desactivar:**
 
 - El cliente sigue existiendo con su historial intacto.

@@ -62,7 +62,10 @@ export function PedidosPage() {
   // Semanas para el selector, priorizando la activa como default.
   useEffect(() => {
     let cancelled = false;
-    setWeeksLoading(true);
+    function init() {
+      setWeeksLoading(true);
+    }
+    init();
 
     void Promise.all([listWeeks({ pageSize: 100 }), getActiveWeek()])
       .then(([weeksResult, active]) => {
@@ -94,8 +97,11 @@ export function PedidosPage() {
   // Días de la semana elegida en el filtro.
   useEffect(() => {
     if (!weekId) {
-      setDays([]);
-      setWeekDayId("");
+      function resetDays() {
+        setDays([]);
+        setWeekDayId("");
+      }
+      resetDays();
       return;
     }
 
@@ -158,7 +164,10 @@ export function PedidosPage() {
   }, [weekId, weekDayId, modalityFilter, page]);
 
   useEffect(() => {
-    void loadOrders();
+    function run() {
+      void loadOrders();
+    }
+    run();
   }, [loadOrders]);
 
   const handleCloseDrawer = useCallback(() => {

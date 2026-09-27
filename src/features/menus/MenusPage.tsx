@@ -94,7 +94,10 @@ export function MenusPage() {
   );
 
   useEffect(() => {
-    void loadMenus();
+    function run() {
+      void loadMenus();
+    }
+    run();
   }, [loadMenus]);
 
   useEffect(() => {

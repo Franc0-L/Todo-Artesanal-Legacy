@@ -28,7 +28,10 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    void loadData();
+    function run() {
+      void loadData();
+    }
+    run();
   }, [loadData]);
 
   return (

@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import type { ReactNode } from "react";
 import { AdminSectionPage } from "../features/admin/AdminSectionPage";
 import { AdminLoginPage } from "../features/auth/AdminLoginPage";
-import { useAuth } from "../features/auth/AuthProvider";
+import { useAuth } from "../features/auth/useAuth";
 import { AdminShell } from "../features/admin/AdminShell";
 import { ClientsPage } from "../features/clientes/ClientsPage";
 import { DashboardPage } from "../features/dashboard/DashboardPage";

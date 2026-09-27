@@ -50,7 +50,11 @@ export function CancelacionesPage() {
 
   useEffect(() => {
     let cancelled = false;
-    setWeeksLoading(true);
+
+    function init() {
+      setWeeksLoading(true);
+    }
+    init();
 
     void listWeeks({ pageSize: 100 })
       .then((result) => {
@@ -78,8 +82,11 @@ export function CancelacionesPage() {
 
   useEffect(() => {
     if (!weekId) {
-      setDays([]);
-      setWeekDayId("");
+      function resetDays() {
+        setDays([]);
+        setWeekDayId("");
+      }
+      resetDays();
       return;
     }
 
@@ -134,7 +141,10 @@ export function CancelacionesPage() {
   }, [weekId, weekDayId, page]);
 
   useEffect(() => {
-    void loadCancellations();
+    function run() {
+      void loadCancellations();
+    }
+    run();
   }, [loadCancellations]);
 
   function handleWeekChange(value: string) {

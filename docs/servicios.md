@@ -166,6 +166,7 @@ No existen `updateDishVersion` ni `deleteDishVersion`: las versiones son inmutab
 | `updateWeek`    | `(weekId, input: UpdateWeekInput) → Promise<Week>`    | RPC `update_week`. Solo `draft`. **Borra las opciones de oferta existentes** (cascade). |
 | `activateWeek`  | `(weekId) → Promise<void>`                            | RPC `activate_week`. Valida oferta completa, congela `week_expected_clients`.           |
 | `closeWeek`     | `(weekId) → Promise<void>`                            | RPC `close_week`. `active → closed`. Terminal.                                          |
+| `deleteWeek`    | `(weekId) → Promise<void>`                            | `DELETE` directo. Solo funciona en semanas sin operaciones (FK desde orders/cancellations). |
 
 ### `week-days.service.ts`
 

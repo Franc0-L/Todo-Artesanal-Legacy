@@ -28,6 +28,10 @@ const sectionCopy: Record<
     title: "Pedidos",
     description: "Gestión de pedidos de la semana y sus estados.",
   },
+  "/admin/cancelaciones": {
+    title: "Cancelaciones",
+    description: "Gestión de cancelaciones de pedidos de la semana.",
+  },
   "/admin/historial": {
     title: "Historial",
     description:

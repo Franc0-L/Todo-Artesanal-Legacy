@@ -26,6 +26,7 @@ export function resolveRoute(pathname: string): AppRoute {
     "/admin/menus",
     "/admin/semanas",
     "/admin/pedidos",
+    "/admin/cancelaciones",
     "/admin/historial",
   ];
 

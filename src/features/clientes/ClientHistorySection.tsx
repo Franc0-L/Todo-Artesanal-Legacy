@@ -132,14 +132,20 @@ export function ClientHistorySection({ clientId }: ClientHistorySectionProps) {
   const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
-    setPage(1);
+    function resetPage() {
+      setPage(1);
+    }
+    resetPage();
   }, [clientId]);
 
   useEffect(() => {
     let cancelled = false;
 
-    setLoading(true);
-    setError(null);
+    function init() {
+      setLoading(true);
+      setError(null);
+    }
+    init();
 
     void getClientHistory(clientId, { page, pageSize: PAGE_SIZE })
       .then((result) => {

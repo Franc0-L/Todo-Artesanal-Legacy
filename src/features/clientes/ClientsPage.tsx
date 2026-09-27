@@ -92,8 +92,25 @@ export function ClientsPage() {
   }, []);
 
   useEffect(() => {
-    void loadClients();
+    function run() {
+      void loadClients();
+    }
+    run();
   }, [loadClients]);
+
+  // Tras un borrado, si la página quedó vacía volvemos una atrás; si no,
+  // recargamos con los mismos filtros.
+  const handleClientDeleted = useCallback(() => {
+    setSelectedClientId(null);
+    setCreateDrawerOpen(false);
+
+    if (items.length <= 1 && page > 1) {
+      setPage(page - 1);
+      return;
+    }
+
+    void loadClients();
+  }, [items.length, page, loadClients]);
 
   // Búsqueda en vivo: a medida que se escribe, se espera una breve pausa
   // (debounce) antes de disparar la consulta, para no hacer un pedido por
@@ -282,6 +299,7 @@ export function ClientsPage() {
         onClose={handleCloseDrawer}
         onCreated={handleClientCreated}
         onSaved={handleClientSaved}
+        onDeleted={handleClientDeleted}
       />
     </section>
   );

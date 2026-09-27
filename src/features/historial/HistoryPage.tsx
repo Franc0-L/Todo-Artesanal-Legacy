@@ -94,7 +94,10 @@ export function HistoryPage() {
   }, [fromDate, page, toDate]);
 
   useEffect(() => {
-    void loadWeeks();
+    function run() {
+      void loadWeeks();
+    }
+    run();
   }, [loadWeeks]);
 
   const openWeekDetail = useCallback(async (week: HistoricalWeek) => {

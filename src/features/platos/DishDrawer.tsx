@@ -107,7 +107,8 @@ export function DishDrawer({
   }
 
   useEffect(() => {
-    if (isCreateMode) {
+    function run() {
+      if (isCreateMode) {
       resetState();
       setLoading(false);
       return;
@@ -158,10 +159,11 @@ export function DishDrawer({
         }
       });
 
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      return () => {
+        cancelled = true;
+      };
+    }
+    return run();
   }, [dishId, isCreateMode]);
 
   useEffect(() => {

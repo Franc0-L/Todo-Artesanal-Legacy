@@ -15,6 +15,7 @@ const items: AdminNavItem[] = [
   { path: "/admin/menus", label: "Menús", icon: "icon_cubiertos" },
   { path: "/admin/semanas", label: "Semanas", icon: "icon_espatula" },
   { path: "/admin/pedidos", label: "Pedidos", icon: "icon_pedir" },
+  { path: "/admin/cancelaciones", label: "Cancelaciones", icon: "icon_chef" },
   { path: "/admin/historial", label: "Historial", icon: "icon_campana" },
 ];
 

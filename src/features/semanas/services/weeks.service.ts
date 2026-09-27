@@ -175,6 +175,25 @@ export async function closeWeek(weekId: string): Promise<void> {
   );
 }
 
+/**
+ * Elimina definitivamente una semana.
+ *
+ * En la práctica solo funciona para semanas "vírgenes" (típicamente un
+ * borrador sin operaciones): la DB no tiene ON DELETE CASCADE desde orders
+ * ni cancellations, y las opciones ya ofrecidas tienen un trigger que
+ * impide borrarlas. Si hay datos que la referencian, el DELETE devuelve
+ * un CONFLICT (23503) y acá se propaga tal cual.
+ *
+ * Nunca se usa sobre semanas cerradas: el historial es inmutable.
+ */
+export async function deleteWeek(weekId: string): Promise<void> {
+  validateUuid(weekId, "weekId");
+
+  await runSupabase<unknown>(() =>
+    supabase.from("weeks").delete().eq("id", weekId),
+  );
+}
+
 function validateCreateWeekInput(input: CreateWeekInput): {
   startDate: string;
   endDate: string;

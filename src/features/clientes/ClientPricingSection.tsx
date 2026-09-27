@@ -48,9 +48,14 @@ export function ClientPricingSection({
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setMessage(null);
+
+    function init() {
+      setLoading(true);
+      setError(null);
+      setMessage(null);
+    }
+    init();
+
     void Promise.all([
       getClientPrices(clientId),
       listDishes({ active: true, page: 1, pageSize: 100 }),

@@ -66,48 +66,51 @@ export function CancellationDrawer({
   }
 
   useEffect(() => {
-    if (!open) {
+    function run() {
+      if (!open) {
+        resetState();
+        setLoading(false);
+        return;
+      }
+
+      let cancelled = false;
+      setLoading(true);
       resetState();
-      setLoading(false);
-      return;
+
+      void getActiveWeek()
+        .then((week) => {
+          if (cancelled) return null;
+          setActiveWeek(week);
+          if (!week) return null;
+          return Promise.all([
+            listWeekDays(week.id),
+            getExpectedClients(week.id),
+          ]);
+        })
+        .then((result) => {
+          if (cancelled || !result) return;
+          const [daysResult, expectedResult] = result;
+          setDays(daysResult);
+          setExpectedClients(expectedResult.items);
+        })
+        .catch((loadError: unknown) => {
+          if (!cancelled) {
+            setError(
+              loadError instanceof Error
+                ? loadError.message
+                : "No se pudo cargar la semana activa.",
+            );
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+
+      return () => {
+        cancelled = true;
+      };
     }
-
-    let cancelled = false;
-    setLoading(true);
-    resetState();
-
-    void getActiveWeek()
-      .then((week) => {
-        if (cancelled) return null;
-        setActiveWeek(week);
-        if (!week) return null;
-        return Promise.all([
-          listWeekDays(week.id),
-          getExpectedClients(week.id),
-        ]);
-      })
-      .then((result) => {
-        if (cancelled || !result) return;
-        const [daysResult, expectedResult] = result;
-        setDays(daysResult);
-        setExpectedClients(expectedResult.items);
-      })
-      .catch((loadError: unknown) => {
-        if (!cancelled) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "No se pudo cargar la semana activa.",
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
+    return run();
   }, [open]);
 
   useEffect(() => {

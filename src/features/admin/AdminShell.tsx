@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { useAuth } from "../auth/AuthProvider";
+import { useAuth } from "../auth/useAuth";
 import { AdminNavigation } from "./AdminNavigation";
 import { navigate, type AdminRoutePath } from "../../app/routes";
 import { useTheme } from "../../lib/theme";

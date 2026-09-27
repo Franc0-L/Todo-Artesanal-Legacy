@@ -9,6 +9,7 @@ import {
   activateWeek,
   closeWeek,
   createWeek,
+  deleteWeek,
   getWeek,
   updateWeek,
 } from "./services/weeks.service";
@@ -28,6 +29,7 @@ import {
   formatDateRange,
 } from "../../lib/formatters";
 import { useConfirm } from "../../components/ui/useConfirm";
+import { isAppError } from "../../lib/errors";
 import type { WeekStatus } from "../../types/domain";
 import type { Week } from "./types/week";
 import type { WeekDay } from "./types/week-day";
@@ -41,6 +43,8 @@ interface WeekDrawerProps {
   onClose: () => void;
   onCreated: (week: Week) => void;
   onSaved: (week: Week) => void;
+  /** Se dispara cuando la semana se eliminó definitivamente. */
+  onDeleted: (weekId: string) => void;
 }
 
 interface DateFormState {
@@ -62,6 +66,7 @@ export function WeekDrawer({
   onClose,
   onCreated,
   onSaved,
+  onDeleted,
 }: WeekDrawerProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [week, setWeek] = useState<Week | null>(null);
@@ -77,6 +82,7 @@ export function WeekDrawer({
   const [saving, setSaving] = useState(false);
   const [datesSaving, setDatesSaving] = useState(false);
   const [lifecycleSaving, setLifecycleSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [datesError, setDatesError] = useState<string | null>(null);
   const [datesMessage, setDatesMessage] = useState<string | null>(null);
@@ -117,10 +123,12 @@ export function WeekDrawer({
     setError(null);
     setDatesError(null);
     setDatesMessage(null);
+    setDeleting(false);
   }
 
   useEffect(() => {
-    if (isCreateMode) {
+    function run() {
+      if (isCreateMode) {
       resetState();
       setLoading(false);
       return;
@@ -171,10 +179,11 @@ export function WeekDrawer({
         }
       });
 
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      return () => {
+        cancelled = true;
+      };
+    }
+    return run();
   }, [weekId, isCreateMode]);
 
   useEffect(() => {
@@ -385,6 +394,48 @@ export function WeekDrawer({
       );
     } finally {
       setLifecycleSaving(false);
+    }
+  }
+
+  /**
+   * Borrado definitivo. Solo se ofrece en borradores: si la semana tiene
+   * pedidos, cancelaciones u opciones ya ofrecidas, la DB lo rechaza y se
+   * muestra un mensaje accionable en lugar de un error crudo.
+   */
+  async function handleDelete() {
+    if (!week || deleting || lifecycleSaving) {
+      return;
+    }
+
+    const proceed = await confirm({
+      title: "Eliminar semana",
+      message:
+        "Esta acción elimina la semana de borrador de forma definitiva, junto con sus días y la oferta cargada. No se puede deshacer. Si la semana tiene pedidos o cancelaciones, no se podrá eliminar.",
+      confirmLabel: "Eliminar definitivamente",
+      cancelLabel: "Cancelar",
+      tone: "danger",
+    });
+
+    if (!proceed) {
+      return;
+    }
+
+    setDeleting(true);
+    setError(null);
+
+    try {
+      await deleteWeek(week.id);
+      onDeleted(week.id);
+    } catch (deleteError: unknown) {
+      setError(
+        isAppError(deleteError) && deleteError.code === "CONFLICT"
+          ? "No se pudo eliminar: la semana tiene pedidos o cancelaciones asociados. Para conservar el historial, usá el ciclo de vida (activar / cerrar) en vez de eliminarla."
+          : deleteError instanceof Error
+            ? deleteError.message
+            : "No se pudo eliminar la semana.",
+      );
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -645,6 +696,35 @@ export function WeekDrawer({
                   )}
                 </section>
 
+                {week.status === "draft" && (
+                  <section
+                    className="dish-drawer__section"
+                    aria-labelledby="week-delete-title"
+                  >
+                    <div className="dish-drawer__section-heading">
+                      <div>
+                        <h3 id="week-delete-title">Eliminar semana</h3>
+                        <p>
+                          Solo disponible en borradores sin pedidos. Se borran
+                          los días y la oferta cargada; la acción no se puede
+                          deshacer. Si ya hay operaciones, usá el ciclo de vida
+                          (activar / cerrar).
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      className="week-danger-zone__button"
+                      type="button"
+                      onClick={() => void handleDelete()}
+                      disabled={
+                        deleting || lifecycleSaving || datesSaving || saving
+                      }
+                    >
+                      {deleting ? "Eliminando…" : "Eliminar definitivamente"}
+                    </button>
+                  </section>
+                )}
+
                 <footer className="dish-form__actions">
                   <button type="button" onClick={() => void requestClose()}>
                     Cerrar
@@ -708,8 +788,11 @@ function DayOfferColumn({
     const trimmed = query.trim();
     const delay = trimmed ? DAY_SEARCH_DEBOUNCE_MS : 0;
 
-    setSearchLoading(true);
-    setSearchError(null);
+    function initSearch() {
+      setSearchLoading(true);
+      setSearchError(null);
+    }
+    initSearch();
 
     debounceRef.current = window.setTimeout(() => {
       const request =

@@ -113,7 +113,8 @@ export function OrderDrawer({
   }
 
   useEffect(() => {
-    if (isCreateMode) {
+    function run() {
+      if (isCreateMode) {
       let cancelled = false;
       setLoading(true);
       resetState();
@@ -184,10 +185,11 @@ export function OrderDrawer({
         if (!cancelled) setLoading(false);
       });
 
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      return () => {
+        cancelled = true;
+      };
+    }
+    return run();
   }, [orderId, isCreateMode]);
 
   useEffect(() => {

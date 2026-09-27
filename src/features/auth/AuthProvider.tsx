@@ -1,12 +1,4 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { supabase } from "../../lib/supabase";
 import {
   getAuthenticatedUser,
@@ -15,13 +7,7 @@ import {
   signOutAdmin,
 } from "./auth.service";
 import type { AuthState } from "./auth.types";
-
-interface AuthContextValue extends AuthState {
-  signIn: (email: string, password: string) => Promise<void>;
-  signOut: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextValue | null>(null);
+import { AuthContext } from "./useAuth";
 
 function errorMessage(error: unknown): string {
   return error instanceof Error
@@ -64,7 +50,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    void refreshAuth();
+    function init() {
+      void refreshAuth();
+    }
+    init();
 
     const { data } = supabase.auth.onAuthStateChange(() => {
       void refreshAuth();
@@ -103,12 +92,3 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
-export function useAuth(): AuthContextValue {
-  const context = useContext(AuthContext);
-
-  if (!context) {
-    throw new Error("useAuth debe utilizarse dentro de AuthProvider.");
-  }
-
-  return context;
-}

@@ -70,7 +70,7 @@ export function PlatosPage() {
     setItems((current) => current.map((item) => item.id === dishId ? { ...item, name } : item));
   }, []);
 
-  useEffect(() => { void loadDishes(); }, [loadDishes]);
+  useEffect(() => { function run() { void loadDishes(); } run(); }, [loadDishes]);
 
   useEffect(() => {
     if (filterDebounceRef.current !== null) window.clearTimeout(filterDebounceRef.current);

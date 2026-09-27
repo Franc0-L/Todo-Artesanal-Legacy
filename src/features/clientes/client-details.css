@@ -125,6 +125,25 @@
 .client-link-rotate {
   justify-self: stretch;
 }
+.client-danger-zone__button {
+  justify-self: stretch;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  color: var(--danger-text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.client-danger-zone__button:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+.client-danger-zone__button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
 @media (max-width: 720px) {
   .client-drawer__section-heading {
     display: grid;

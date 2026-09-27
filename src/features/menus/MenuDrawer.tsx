@@ -12,6 +12,15 @@ import {
 } from "./services/menu-versions.service";
 import { listDishes } from "../platos/services/dishes.service";
 import { listDishVersions } from "../platos/services/dish-versions.service";
+import { getDishSuggestions } from "../platos/services/dish-usage.service";
+import {
+  buildMenuName,
+  buildMenuPrice,
+  compositionSignature,
+  suggestComposition,
+  type MenuCompositionItem,
+  type SuggestionDish,
+} from "./menu-suggest";
 import { formatCurrency, formatDate } from "../../lib/formatters";
 import { useConfirm } from "../../components/ui/useConfirm";
 import type { MenuItemRole } from "../../types/domain";
@@ -40,13 +49,8 @@ interface VersionFormState {
   price: string;
 }
 
-interface ComposerItem {
-  dishVersionId: string;
-  dishId: string;
-  name: string;
-  price: number;
-  role: MenuItemRole;
-}
+/** Item de la composición: la forma local es la misma que la del helper. */
+type ComposerItem = MenuCompositionItem;
 
 const EMPTY_VERSION_FORM: VersionFormState = { name: "", price: "" };
 const DISH_SEARCH_DEBOUNCE_MS = 350;
@@ -95,6 +99,15 @@ export function MenuDrawer({
   const [composerError, setComposerError] = useState<string | null>(null);
   const dishSearchDebounceRef = useRef<number | null>(null);
 
+  // Autocompletado y sugerencias de composición.
+  const [suggesting, setSuggesting] = useState(false);
+  const suggestionPoolRef = useRef<SuggestionDish[] | null>(null);
+  const previousSuggestionRef = useRef<string | null>(null);
+  // Último nombre/precio que puso el autocompletado: si el admin los cambió
+  // a mano, no se vuelven a pisar al modificar la composición.
+  const autoNameRef = useRef<string | null>(null);
+  const autoPriceRef = useRef<string | null>(null);
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
@@ -133,11 +146,17 @@ export function MenuDrawer({
     setError(null);
     setVersionError(null);
     setVersionMessage(null);
+    setSuggesting(false);
+    suggestionPoolRef.current = null;
+    previousSuggestionRef.current = null;
+    autoNameRef.current = null;
+    autoPriceRef.current = null;
     setComposerSessionKey((key) => key + 1);
   }
 
   useEffect(() => {
-    if (isCreateMode) {
+    function run() {
+      if (isCreateMode) {
       resetState();
       setLoading(false);
       return;
@@ -198,10 +217,11 @@ export function MenuDrawer({
         }
       });
 
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+      return () => {
+        cancelled = true;
+      };
+    }
+    return run();
   }, [menuId, isCreateMode]);
 
   useEffect(() => {
@@ -267,8 +287,11 @@ export function MenuDrawer({
     const trimmed = dishQuery.trim();
     const delay = trimmed ? DISH_SEARCH_DEBOUNCE_MS : 0;
 
-    setDishSearchLoading(true);
-    setDishSearchError(null);
+    function initSearch() {
+      setDishSearchLoading(true);
+      setDishSearchError(null);
+    }
+    initSearch();
 
     dishSearchDebounceRef.current = window.setTimeout(() => {
       void listDishes({
@@ -294,6 +317,34 @@ export function MenuDrawer({
       }
     };
   }, [dishQuery, composerSessionKey]);
+
+  // Autocompletar nombre y precio a partir de la composición.
+  //
+  // Solo se pisa lo que no fue editado a mano: si el campo está vacío o
+  // todavía guarda el valor que puso el autocompletado, se actualiza; si el
+  // admin tipeó algo distinto, se respeta su texto.
+  useEffect(() => {
+    if (composerItems.length === 0) {
+      return;
+    }
+
+    const name = buildMenuName(composerItems);
+    const price = String(buildMenuPrice(composerItems));
+
+    setVersionForm((current) => ({
+      name:
+        current.name.trim() === "" || current.name === autoNameRef.current
+          ? name
+          : current.name,
+      price:
+        current.price === "" || current.price === autoPriceRef.current
+          ? price
+          : current.price,
+    }));
+
+    autoNameRef.current = name;
+    autoPriceRef.current = price;
+  }, [composerItems]);
 
   function updateVersionField<K extends keyof VersionFormState>(
     field: K,
@@ -362,6 +413,109 @@ export function MenuDrawer({
     setComposerItems((current) =>
       current.filter((item) => item.dishVersionId !== dishVersionId),
     );
+  }
+
+  /**
+   * Completa nombre y precio a partir de la composición actual.
+   * No modifica la composición: solo llena los campos.
+   */
+  function handleAutocomplete() {
+    if (composerItems.length === 0) {
+      setComposerError("Agregá al menos un plato principal para autocompletar.");
+      return;
+    }
+
+    setComposerError(null);
+
+    const name = buildMenuName(composerItems);
+    const price = String(buildMenuPrice(composerItems));
+
+    autoNameRef.current = name;
+    autoPriceRef.current = price;
+    setVersionForm((current) => ({ ...current, name, price }));
+  }
+
+  /**
+   * Propone una combinación de platos (1 principal + hasta 2 guarniciones),
+   * reemplaza la composición y completa nombre y precio.
+   *
+   * Cada clic genera una combinación distinta a la anterior mientras haya
+   * variedad en el catálogo. El catálogo se consulta una sola vez por
+   * apertura del drawer; las versiones se resuelven recién al aplicar.
+   */
+  async function handleSuggestComposition() {
+    if (suggesting) {
+      return;
+    }
+
+    setSuggesting(true);
+    setComposerError(null);
+
+    try {
+      if (!suggestionPoolRef.current) {
+        const suggestions = await getDishSuggestions({ limit: 100 });
+        const pool: SuggestionDish[] = suggestions
+          .filter((item) => item.name.trim() !== "")
+          .map((item) => ({
+            dishId: item.dishId,
+            name: item.name,
+            uses: item.uses,
+          }));
+
+        suggestionPoolRef.current = pool;
+      }
+
+      const picked = suggestComposition(
+        suggestionPoolRef.current,
+        previousSuggestionRef.current,
+      );
+
+      if (!picked) {
+        setComposerError("No hay platos activos para armar una sugerencia.");
+        return;
+      }
+
+      const resolved = await Promise.all(
+        picked.map(async (dish) => {
+          const versions = await listDishVersions(dish.dishId);
+          const latest = versions[0];
+
+          if (!latest) {
+            return null;
+          }
+
+          return {
+            dishVersionId: latest.id,
+            dishId: dish.dishId,
+            name: latest.name,
+            price: latest.price,
+            role: dish.role,
+          } satisfies MenuCompositionItem;
+        }),
+      );
+
+      const items = resolved.filter(
+        (item): item is MenuCompositionItem => item !== null,
+      );
+
+      if (!items.some((item) => item.role === "main")) {
+        setComposerError(
+          "La sugerencia no se pudo armar: algún plato no tiene versiones cargadas.",
+        );
+        return;
+      }
+
+      previousSuggestionRef.current = compositionSignature(items);
+      setComposerItems(items);
+    } catch (suggestError: unknown) {
+      setComposerError(
+        suggestError instanceof Error
+          ? suggestError.message
+          : "No se pudieron generar sugerencias.",
+      );
+    } finally {
+      setSuggesting(false);
+    }
   }
 
   function validateComposer(): string | null {
@@ -690,6 +844,28 @@ export function MenuDrawer({
               ))}
             </ul>
           )}
+        </div>
+
+        <div className="menu-composer__suggest">
+          <button
+            type="button"
+            onClick={handleAutocomplete}
+            disabled={composerItems.length === 0}
+          >
+            Autocompletar nombre y precio
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleSuggestComposition()}
+            disabled={suggesting}
+          >
+            {suggesting ? "Armando sugerencia…" : "Sugerir mejores opciones"}
+          </button>
+          <p className="menu-composer__hint">
+            La sugerencia reemplaza la composición (1 principal y hasta 2
+            guarniciones) y completa nombre y precio. Cada clic genera otra
+            combinación.
+          </p>
         </div>
       </div>
     </>
