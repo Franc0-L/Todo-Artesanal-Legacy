@@ -11,15 +11,20 @@
 .order-delete-button { border-color: var(--danger-border) !important; color: var(--danger-text) !important; background: var(--bg-surface) !important; }
 .order-delete-button:hover:not(:disabled) { background: var(--danger-bg) !important; }
 
-/* Pedido: buscador de cliente y notas siguen el mismo lenguaje de los demás campos. */
 .dish-form input[type="search"],
 .dish-form textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--input-bg); color: var(--text-main); font: inherit; line-height: 1.4; resize: vertical; }
 .dish-form input[type="search"]:focus,
 .dish-form textarea:focus { outline: 3px solid var(--primary-border); outline-offset: 1px; border-color: var(--primary); }
+.dish-form input[type="search"]::placeholder,
+.dish-form textarea::placeholder { color: var(--text-muted); opacity: 1; }
 .dish-form textarea { min-height: 92px; }
 
-/* General/Opcional no se selecciona manualmente: la oferta configurada en la semana lo determina. */
-.pedidos-page .dish-drawer .dish-form__fields > label:nth-child(3) { display: none; }
+.order-modality-toggle { display: grid; gap: 8px; margin: 0; padding: 14px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-subtle); }
+.order-modality-toggle legend { padding: 0 4px; color: var(--text-body); font-size: .875rem; font-weight: 650; }
+.order-modality-toggle p { margin: 0; color: var(--text-muted); font-size: .85rem; line-height: 1.45; }
+.order-modality-toggle > label { display: flex !important; grid-template-columns: none; flex-direction: row; align-items: center; gap: 9px !important; color: var(--text-body) !important; font-size: .875rem !important; font-weight: 600 !important; cursor: pointer; }
+.order-modality-toggle input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
+.order-modality-toggle input[type="checkbox"]:disabled { cursor: not-allowed; }
 
 @media (max-width: 720px) {
   .dish-form__actions.dish-form__actions--split { flex-direction: column; align-items: stretch; }
