@@ -19,38 +19,63 @@ const WEEK_STATUS_LABELS: Record<WeekStatus, string> = {
 };
 
 export function SemanasPage() {
-  const [items, setItems] = useState<WeekListItem[]>([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [selectedWeekId, setSelectedWeekId] = useState<string | null>(null);
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  // Los resultados se guardan junto a la clave de la consulta que los pidió:
+  // `items`, `total`, `loading` y `error` se derivan en el render. Así el
+  // efecto no sincroniza estado antes de pedir los datos y nunca se muestra
+  // el listado de un filtro, página o error anteriores.
+  const requestKey = `${page}|${statusFilter}|${reloadToken}`;
+  const [result, setResult] = useState<{
+    key: string;
+    items: WeekListItem[];
+    total: number;
+  } | null>(null);
+  const [failure, setFailure] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+  const loading = result?.key !== requestKey;
+  const items = result?.key === requestKey ? result.items : [];
+  const total = result?.key === requestKey ? result.total : 0;
+  const error = failure?.key === requestKey ? failure.message : null;
 
-  const loadWeeks = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await listWeeks({
-        status: statusFilter === "all" ? undefined : statusFilter,
-        page,
-        pageSize: PAGE_SIZE,
+  // `reload` vuelve a consultar con los mismos filtros: se usa cuando hay que
+  // refrescar el listado sin cambiar la clave por otro motivo.
+  const reload = useCallback(() => setReloadToken((current) => current + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void listWeeks({
+      status: statusFilter === "all" ? undefined : statusFilter,
+      page,
+      pageSize: PAGE_SIZE,
+    })
+      .then((loaded) => {
+        if (cancelled) return;
+        setResult({ key: requestKey, items: loaded.items, total: loaded.total });
+        setFailure(null);
+      })
+      .catch((loadError: unknown) => {
+        if (cancelled) return;
+        setResult({ key: requestKey, items: [], total: 0 });
+        setFailure({
+          key: requestKey,
+          message:
+            loadError instanceof Error
+              ? loadError.message
+              : "No se pudieron cargar las semanas.",
+        });
       });
-      setItems(result.items);
-      setTotal(result.total);
-    } catch (loadError) {
-      setItems([]);
-      setTotal(0);
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "No se pudieron cargar las semanas.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [page, statusFilter]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [page, requestKey, statusFilter]);
 
   const handleCloseDrawer = useCallback(() => {
     setSelectedWeekId(null);
@@ -62,32 +87,35 @@ export function SemanasPage() {
       setCreateDrawerOpen(false);
       setSelectedWeekId(created.id);
       setPage(1);
-      void loadWeeks();
+      // `reload` fuerza la consulta aunque ya estuviéramos en la página 1 con
+      // los mismos filtros (cambiar `page` a 1 no alcanzaría).
+      reload();
     },
-    [loadWeeks],
+    [reload],
   );
 
-  const handleWeekSaved = useCallback((updated: Week) => {
-    setItems((current) =>
-      current.map((item) =>
-        item.id === updated.id
+  const handleWeekSaved = useCallback(
+    (updated: Week) => {
+      setResult((current) =>
+        current && current.key === requestKey
           ? {
-              ...item,
-              startDate: updated.startDate,
-              endDate: updated.endDate,
-              status: updated.status,
+              ...current,
+              items: current.items.map((item) =>
+                item.id === updated.id
+                  ? {
+                      ...item,
+                      startDate: updated.startDate,
+                      endDate: updated.endDate,
+                      status: updated.status,
+                    }
+                  : item,
+              ),
             }
-          : item,
-      ),
-    );
-  }, []);
-
-  useEffect(() => {
-    function run() {
-      void loadWeeks();
-    }
-    run();
-  }, [loadWeeks]);
+          : current,
+      );
+    },
+    [requestKey],
+  );
 
   // Tras un borrado, si la página quedó vacía volvemos una atrás; si no,
   // recargamos con los mismos filtros.
@@ -100,8 +128,8 @@ export function SemanasPage() {
       return;
     }
 
-    void loadWeeks();
-  }, [items.length, page, loadWeeks]);
+    reload();
+  }, [items.length, page, reload]);
 
   function handleStatusChange(value: StatusFilter) {
     setPage(1);
@@ -156,7 +184,7 @@ export function SemanasPage() {
       {error && (
         <div className="semanas-feedback semanas-feedback--error" role="alert">
           <p>{error}</p>
-          <button type="button" onClick={() => void loadWeeks()}>
+          <button type="button" onClick={reload}>
             Reintentar
           </button>
         </div>
@@ -235,7 +263,10 @@ export function SemanasPage() {
         </nav>
       )}
 
+      {/* El `key` remonta el drawer al cambiar de semana o de modo: el
+          formulario arranca limpio sin resetear estado dentro de un efecto. */}
       <WeekDrawer
+        key={createDrawerOpen ? "create" : `edit:${selectedWeekId ?? "closed"}`}
         mode={createDrawerOpen ? "create" : "edit"}
         weekId={createDrawerOpen ? null : selectedWeekId}
         onClose={handleCloseDrawer}

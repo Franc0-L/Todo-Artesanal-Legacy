@@ -68,6 +68,10 @@ export function WeekDrawer({
   onSaved,
   onDeleted,
 }: WeekDrawerProps) {
+  const isCreateMode = mode === "create";
+  // En modo edición el drawer arranca cargando la semana: el estado inicial ya
+  // representa ese "cargando" y el efecto no necesita sincronizar estado.
+  const isEditMode = !isCreateMode && weekId !== null;
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [week, setWeek] = useState<Week | null>(null);
   const [offer, setOffer] = useState<WeekOffer | null>(null);
@@ -78,7 +82,7 @@ export function WeekDrawer({
   const [baselineDatesForm, setBaselineDatesForm] =
     useState<DateFormState>(EMPTY_DATE_FORM);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(isEditMode);
   const [saving, setSaving] = useState(false);
   const [datesSaving, setDatesSaving] = useState(false);
   const [lifecycleSaving, setLifecycleSaving] = useState(false);
@@ -88,8 +92,6 @@ export function WeekDrawer({
   const [datesMessage, setDatesMessage] = useState<string | null>(null);
 
   const { confirm, confirmDialog } = useConfirm();
-
-  const isCreateMode = mode === "create";
 
   const dirty = isCreateMode
     ? createForm.startDate !== "" || createForm.endDate !== ""
@@ -113,36 +115,13 @@ export function WeekDrawer({
     }
   }, [weekId]);
 
-  function resetState() {
-    setWeek(null);
-    setOffer(null);
-    setExpectedCount(null);
-    setCreateForm(EMPTY_DATE_FORM);
-    setDatesForm(EMPTY_DATE_FORM);
-    setBaselineDatesForm(EMPTY_DATE_FORM);
-    setError(null);
-    setDatesError(null);
-    setDatesMessage(null);
-    setDeleting(false);
-  }
-
+  // La semana se reinicia por remonte (ver `key` en SemanasPage): el estado
+  // inicial ya es el correcto y el efecto solo resuelve el fetch, sin
+  // sincronizar estado antes del primer `await`.
   useEffect(() => {
-    function run() {
-      if (isCreateMode) {
-      resetState();
-      setLoading(false);
-      return;
-    }
-
-    if (!weekId) {
-      resetState();
-      setLoading(false);
-      return;
-    }
+    if (!isEditMode || !weekId) return;
 
     let cancelled = false;
-    setLoading(true);
-    resetState();
 
     void Promise.all([getWeek(weekId), getWeekOffer(weekId)])
       .then(([weekResult, offerResult]) => {
@@ -179,12 +158,10 @@ export function WeekDrawer({
         }
       });
 
-      return () => {
-        cancelled = true;
-      };
-    }
-    return run();
-  }, [weekId, isCreateMode]);
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, weekId]);
 
   useEffect(() => {
     if (!isCreateMode && !weekId) {
@@ -773,13 +750,17 @@ function DayOfferColumn({
   const [query, setQuery] = useState("");
   const [dishResults, setDishResults] = useState<DishListItem[]>([]);
   const [menuResults, setMenuResults] = useState<MenuListItem[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchLoading, setSearchLoading] = useState(true);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const debounceRef = useRef<number | null>(null);
 
+  // El estado del buscador (`searchLoading`/`searchError`) se marca desde los
+  // eventos que cambian la búsqueda (ver `handleSearchTypeChange` y
+  // `handleQueryChange`): el efecto solo programa la consulta y resuelve sus
+  // resultados.
   useEffect(() => {
     if (debounceRef.current !== null) {
       window.clearTimeout(debounceRef.current);
@@ -787,12 +768,7 @@ function DayOfferColumn({
 
     const trimmed = query.trim();
     const delay = trimmed ? DAY_SEARCH_DEBOUNCE_MS : 0;
-
-    function initSearch() {
-      setSearchLoading(true);
-      setSearchError(null);
-    }
-    initSearch();
+    let cancelled = false;
 
     debounceRef.current = window.setTimeout(() => {
       const request =
@@ -802,6 +778,7 @@ function DayOfferColumn({
               active: true,
               pageSize: DAY_SEARCH_PAGE_SIZE,
             }).then((result) => {
+              if (cancelled) return;
               setDishResults(result.items);
               setMenuResults([]);
             })
@@ -810,12 +787,14 @@ function DayOfferColumn({
               active: true,
               pageSize: DAY_SEARCH_PAGE_SIZE,
             }).then((result) => {
+              if (cancelled) return;
               setMenuResults(result.items);
               setDishResults([]);
             });
 
       request
         .catch((searchErr: unknown) => {
+          if (cancelled) return;
           setDishResults([]);
           setMenuResults([]);
           setSearchError(
@@ -824,15 +803,34 @@ function DayOfferColumn({
               : "No se pudo buscar.",
           );
         })
-        .finally(() => setSearchLoading(false));
+        .finally(() => {
+          if (!cancelled) setSearchLoading(false);
+        });
     }, delay);
 
     return () => {
+      cancelled = true;
       if (debounceRef.current !== null) {
         window.clearTimeout(debounceRef.current);
       }
     };
   }, [query, searchType]);
+
+  function beginSearch() {
+    setSearchLoading(true);
+    setSearchError(null);
+  }
+
+  function handleSearchTypeChange(next: "dish" | "menu") {
+    beginSearch();
+    setSearchType(next);
+    setQuery("");
+  }
+
+  function handleQueryChange(value: string) {
+    beginSearch();
+    setQuery(value);
+  }
 
   async function handleAddDish(dish: DishListItem) {
     setAddError(null);
@@ -964,20 +962,14 @@ function DayOfferColumn({
             <button
               type="button"
               className={searchType === "dish" ? "is-active" : ""}
-              onClick={() => {
-                setSearchType("dish");
-                setQuery("");
-              }}
+              onClick={() => handleSearchTypeChange("dish")}
             >
               Platos
             </button>
             <button
               type="button"
               className={searchType === "menu" ? "is-active" : ""}
-              onClick={() => {
-                setSearchType("menu");
-                setQuery("");
-              }}
+              onClick={() => handleSearchTypeChange("menu")}
             >
               Menús
             </button>
@@ -986,7 +978,7 @@ function DayOfferColumn({
           <input
             type="search"
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => handleQueryChange(event.target.value)}
             placeholder={
               searchType === "dish"
                 ? "Buscar plato activo"

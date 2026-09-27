@@ -131,21 +131,11 @@ export function ClientHistorySection({ clientId }: ClientHistorySectionProps) {
   const [error, setError] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
 
-  useEffect(() => {
-    function resetPage() {
-      setPage(1);
-    }
-    resetPage();
-  }, [clientId]);
-
+  // El historial se reinicia por remonte (el drawer que lo contiene se remonta
+  // al cambiar de cliente): `page` arranca en 1 y `loading` en `true`, así que
+  // el efecto solo pide los datos y no sincroniza estado antes del `await`.
   useEffect(() => {
     let cancelled = false;
-
-    function init() {
-      setLoading(true);
-      setError(null);
-    }
-    init();
 
     void getClientHistory(clientId, { page, pageSize: PAGE_SIZE })
       .then((result) => {

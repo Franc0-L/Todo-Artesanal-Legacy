@@ -46,15 +46,11 @@ export function ClientPricingSection({
   const [message, setMessage] = useState<string | null>(null);
   const [dishNames, setDishNames] = useState<Record<string, string>>({});
 
+  // Los precios se reinician por remonte (el drawer que contiene la sección se
+  // remonta al cambiar de cliente): `loading` arranca en `true`, así que el
+  // efecto solo pide los datos y no sincroniza estado antes del `await`.
   useEffect(() => {
     let cancelled = false;
-
-    function init() {
-      setLoading(true);
-      setError(null);
-      setMessage(null);
-    }
-    init();
 
     void Promise.all([
       getClientPrices(clientId),

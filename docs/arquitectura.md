@@ -254,6 +254,20 @@ flowchart TB
     X1 -.->|escribe| S2
 ```
 
+## Patrón de carga de datos en la UI
+
+El estado de carga/error de los listados se **deriva en el render**, no se sincroniza dentro de un efecto (regla `react-hooks/set-state-in-effect`: el cuerpo de un efecto solo puede fijar estado dentro de callbacks).
+
+- **Listados con filtros y paginación** (Clientes, Menús, Platos, Semanas, Pedidos, Cancelaciones, Historial):
+  - El efecto dispara la consulta del servicio y guarda el resultado **dentro de sus callbacks**, junto a la clave de la consulta que lo pidió: `result = { key, items, total }` con `key = \`${page}|${filtroA}|${filtroB}|${reloadToken}\``.
+  - El resto se deriva: `loading = result?.key !== requestKey`, `items = result?.key === requestKey ? result.items : []`, `error = failure?.key === requestKey ? failure.message : null`.
+  - Beneficio: nunca se muestra el listado de un filtro o página anteriores y el spinner aparece sin fijar estado antes del `await`.
+  - Los refrescos con los mismos filtros (reintentar, después de crear o borrar) incrementan `reloadToken` con `reload()`; no se llama al loader desde un evento.
+  - Las actualizaciones locales del listado (después de guardar en el drawer) se aplican con un patch que respeta la clave vigente.
+  - El cleanup del efecto marca `cancelled` para descartar respuestas de consultas ya reemplazadas.
+- **Drawers**: el formulario se reinicia por **remonte**. La página dueña le pasa `key` (`"create"`, `edit:${id}` o `"closed"`) y el drawer inicializa `loading` en `useState(...)` según el modo.
+- **Estado dependiente de un id**: los días de una semana se guardan junto al `weekId` al que pertenecen (y la selección del día junto a la semana en la que se eligió) para derivarlos al renderizar, en lugar de limpiarlos dentro de un efecto.
+
 ## Pendientes de arquitectura
 
 - **Emisión de JWT de cliente:** falta el endpoint que valida el token personal del cliente y emite un JWT con claim `client_id`. Sin esto, `/menu/:token` no puede operar contra Supabase con las policies actuales.

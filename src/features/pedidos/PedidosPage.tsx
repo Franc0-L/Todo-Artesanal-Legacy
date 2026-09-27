@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { OrderDrawer } from "./OrderDrawer";
 import { getOrderTotals, listOrders } from "./services/orders.service";
 import { getActiveWeek, listWeeks } from "../semanas/services/weeks.service";
@@ -35,16 +35,43 @@ export function PedidosPage() {
   const days = weekDays.weekId === weekId ? weekDays.days : [];
   const weekDayId = daySelection.weekId === weekId ? daySelection.weekDayId : "";
   const [modalityFilter, setModalityFilter] = useState<ModalityFilter>("all");
-  const [items, setItems] = useState<OrderDetail[]>([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [totals, setTotals] = useState<OrderTotals | null>(null);
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
   const [weeksLoading, setWeeksLoading] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+  // La lista se guarda junto a la clave de la consulta que la pidió: `items`,
+  // `total`, los totales, el `loading` y el error se derivan en el render, así
+  // el efecto no sincroniza estado antes de pedir los datos y nunca se
+  // muestran los de un filtro, página o error anteriores.
+  const requestKey = `${weekId}|${weekDayId}|${modalityFilter}|${page}|${reloadToken}`;
+  const [result, setResult] = useState<{
+    key: string;
+    items: OrderDetail[];
+    total: number;
+    totals: OrderTotals | null;
+  } | null>(null);
+  const [failure, setFailure] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+  // Sin semana elegida no hay consulta que hacer: el render muestra el aviso
+  // de "no hay semanas creadas".
+  const loading = weekId !== "" && result?.key !== requestKey;
+  const items = result?.key === requestKey ? result.items : [];
+  const total = result?.key === requestKey ? result.total : 0;
+  const totals = result?.key === requestKey ? result.totals : null;
+  const listError = failure?.key === requestKey ? failure.message : null;
+  // Errores que no son del listado (carga de semanas).
   const [error, setError] = useState<string | null>(null);
-  const requestIdRef = useRef(0);
+  const visibleError = listError ?? error;
+
+  // `reload` vuelve a consultar con los mismos filtros: se usa cuando hay que
+  // refrescar el listado sin cambiar la clave por otro motivo.
+  const reload = useCallback(() => {
+    setError(null);
+    setReloadToken((current) => current + 1);
+  }, []);
 
   // `weeksLoading` arranca en `true` (estado inicial) y el efecto solo lo baja
   // al terminar la consulta: no hace falta volver a marcarlo al inicio.
@@ -79,44 +106,29 @@ export function PedidosPage() {
     return () => { cancelled = true; };
   }, [weekId]);
 
-  const loadOrders = useCallback(async () => {
-    const requestId = ++requestIdRef.current;
-    if (!weekId) {
-      setItems([]);
-      setTotal(0);
-      setTotals(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const params = { weekId, weekDayId: weekDayId || undefined, modality: modalityFilter === "all" ? undefined : modalityFilter };
-      const [result, totalsResult] = await Promise.all([
-        listOrders({ ...params, page, pageSize: PAGE_SIZE }),
-        getOrderTotals(params),
-      ]);
-      if (requestId !== requestIdRef.current) return;
-      setItems(result.items);
-      setTotal(result.total);
-      setTotals(totalsResult);
-    } catch (loadError) {
-      if (requestId !== requestIdRef.current) return;
-      setItems([]);
-      setTotal(0);
-      setTotals(null);
-      setError(loadError instanceof Error ? loadError.message : "No se pudieron cargar los pedidos.");
-    } finally {
-      if (requestId === requestIdRef.current) setLoading(false);
-    }
-  }, [weekId, weekDayId, modalityFilter, page]);
-
   useEffect(() => {
-    function run() {
-      void loadOrders();
-    }
-    run();
-  }, [loadOrders]);
+    if (!weekId) return;
+
+    let cancelled = false;
+    const params = { weekId, weekDayId: weekDayId || undefined, modality: modalityFilter === "all" ? undefined : modalityFilter };
+
+    void Promise.all([
+      listOrders({ ...params, page, pageSize: PAGE_SIZE }),
+      getOrderTotals(params),
+    ])
+      .then(([loaded, totalsResult]) => {
+        if (cancelled) return;
+        setResult({ key: requestKey, items: loaded.items, total: loaded.total, totals: totalsResult });
+        setFailure(null);
+      })
+      .catch((loadError: unknown) => {
+        if (cancelled) return;
+        setResult({ key: requestKey, items: [], total: 0, totals: null });
+        setFailure({ key: requestKey, message: loadError instanceof Error ? loadError.message : "No se pudieron cargar los pedidos." });
+      });
+
+    return () => { cancelled = true; };
+  }, [modalityFilter, page, requestKey, weekDayId, weekId]);
 
   const handleCloseDrawer = useCallback(() => {
     setSelectedOrderId(null);
@@ -125,27 +137,26 @@ export function PedidosPage() {
 
   const handleOrderCreated = useCallback(() => {
     setCreateDrawerOpen(false);
-    if (page === 1) {
-      void loadOrders();
-    } else {
-      setPage(1);
-    }
-  }, [loadOrders, page]);
+    // `reload` fuerza la consulta aunque ya estuviéramos en la página 1 con
+    // los mismos filtros (cambiar `page` a 1 no alcanzaría).
+    setPage(1);
+    reload();
+  }, [reload]);
 
-  const handleOrderSaved = useCallback(() => { void loadOrders(); }, [loadOrders]);
+  const handleOrderSaved = useCallback(() => { reload(); }, [reload]);
 
   const handleOrderDeleted = useCallback(() => {
     setSelectedOrderId(null);
     if (items.length === 1 && page > 1) {
       setPage((current) => current - 1);
     } else {
-      void loadOrders();
+      reload();
     }
-  }, [items.length, loadOrders, page]);
+  }, [items.length, page, reload]);
 
-  function handleWeekChange(value: string) { setPage(1); setWeekId(value); setDaySelection({ weekId: value, weekDayId: "" }); }
-  function handleDayChange(value: string) { setPage(1); setDaySelection({ weekId, weekDayId: value }); }
-  function handleModalityChange(value: ModalityFilter) { setPage(1); setModalityFilter(value); }
+  function handleWeekChange(value: string) { setPage(1); setError(null); setWeekId(value); setDaySelection({ weekId: value, weekDayId: "" }); }
+  function handleDayChange(value: string) { setPage(1); setError(null); setDaySelection({ weekId, weekDayId: value }); }
+  function handleModalityChange(value: ModalityFilter) { setPage(1); setError(null); setModalityFilter(value); }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   // Remonta el drawer al cambiar de pedido o de modo: el formulario arranca
@@ -173,7 +184,7 @@ export function PedidosPage() {
 
       {totals && <div className="pedidos-summary"><div><strong>{totals.orderCount}</strong><span>Pedidos</span></div><div><strong>{totals.totalQuantity}</strong><span>Viandas</span></div><div><strong>{formatCurrency(totals.totalAmount)}</strong><span>Total</span></div></div>}
 
-      {error && <div className="pedidos-feedback pedidos-feedback--error" role="alert"><p>{error}</p><button type="button" onClick={() => void loadOrders()}>Reintentar</button></div>}
+      {visibleError && <div className="pedidos-feedback pedidos-feedback--error" role="alert"><p>{visibleError}</p><button type="button" onClick={reload}>Reintentar</button></div>}
 
       <div className="pedidos-list-wrapper" aria-busy={loading}>
         {!weekId ? <div className="pedidos-feedback"><h2>No hay semanas creadas</h2><p>Creá una semana desde la sección Semanas para poder cargar pedidos.</p></div> : loading ? <p className="pedidos-feedback">Cargando pedidos…</p> : items.length === 0 ? <div className="pedidos-feedback"><h2>No hay pedidos para mostrar</h2><p>Probá cambiar los filtros o cargar un pedido nuevo.</p></div> : <>

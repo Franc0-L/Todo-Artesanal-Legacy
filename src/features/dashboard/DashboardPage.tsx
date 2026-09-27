@@ -9,30 +9,41 @@ export function DashboardPage() {
   const [data, setData] = useState<DashboardSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
 
-  const loadData = useCallback(async () => {
+  // `loading` arranca en `true` y el efecto solo lo baja al terminar la
+  // consulta: no hace falta volver a marcarlo al inicio.
+  useEffect(() => {
+    let cancelled = false;
+
+    void getDashboardSummary()
+      .then((summary) => {
+        if (!cancelled) setData(summary);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled)
+          setError(
+            err instanceof Error
+              ? err.message
+              : "No se pudo cargar la información del panel.",
+          );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
+
+  // El reintento marca el estado de carga desde el evento, no dentro del
+  // efecto, y fuerza una consulta nueva con `reloadToken`.
+  const reload = useCallback(() => {
     setLoading(true);
     setError(null);
-    try {
-      const summary = await getDashboardSummary();
-      setData(summary);
-    } catch (err: unknown) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudo cargar la información del panel.",
-      );
-    } finally {
-      setLoading(false);
-    }
+    setReloadToken((current) => current + 1);
   }, []);
-
-  useEffect(() => {
-    function run() {
-      void loadData();
-    }
-    run();
-  }, [loadData]);
 
   return (
     <section className="dashboard-page" aria-labelledby="dashboard-title">
@@ -80,7 +91,7 @@ export function DashboardPage() {
           role="alert"
         >
           <span>{error}</span>
-          <button type="button" onClick={() => void loadData()}>
+          <button type="button" onClick={reload}>
             Reintentar
           </button>
         </div>

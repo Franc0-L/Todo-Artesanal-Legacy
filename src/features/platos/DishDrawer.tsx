@@ -60,6 +60,10 @@ export function DishDrawer({
   onSaved,
   onVersionCreated,
 }: DishDrawerProps) {
+  const isCreateMode = mode === "create";
+  // En modo edición el drawer arranca cargando la ficha: el estado inicial ya
+  // representa ese "cargando" y el efecto no necesita sincronizar estado.
+  const isEditMode = !isCreateMode && dishId !== null;
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [dish, setDish] = useState<Dish | null>(null);
   const [versions, setVersions] = useState<DishVersion[]>([]);
@@ -67,7 +71,7 @@ export function DishDrawer({
   const [form, setForm] = useState<IdentityFormState>(EMPTY_IDENTITY_FORM);
   const [versionForm, setVersionForm] =
     useState<VersionFormState>(EMPTY_VERSION_FORM);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(isEditMode);
   const [saving, setSaving] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
   const [versionSaving, setVersionSaving] = useState(false);
@@ -78,7 +82,6 @@ export function DishDrawer({
 
   const { confirm, confirmDialog } = useConfirm();
 
-  const isCreateMode = mode === "create";
   const currentVersion = versions[0] ?? null;
 
   const dirty = isCreateMode
@@ -94,35 +97,13 @@ export function DishDrawer({
           (currentVersion ? String(currentVersion.price) : "")
       : false;
 
-  function resetState() {
-    setDish(null);
-    setVersions([]);
-    setUsage(null);
-    setForm(EMPTY_IDENTITY_FORM);
-    setVersionForm(EMPTY_VERSION_FORM);
-    setError(null);
-    setSaveMessage(null);
-    setVersionError(null);
-    setVersionMessage(null);
-  }
-
+  // La ficha se reinicia por remonte (ver `key` en PlatosPage): el estado
+  // inicial ya es el correcto y el efecto solo resuelve el fetch, sin
+  // sincronizar estado antes del primer `await`.
   useEffect(() => {
-    function run() {
-      if (isCreateMode) {
-      resetState();
-      setLoading(false);
-      return;
-    }
-
-    if (!dishId) {
-      resetState();
-      setLoading(false);
-      return;
-    }
+    if (!isEditMode || !dishId) return;
 
     let cancelled = false;
-    setLoading(true);
-    resetState();
 
     void Promise.all([
       getDish(dishId),
@@ -159,12 +140,10 @@ export function DishDrawer({
         }
       });
 
-      return () => {
-        cancelled = true;
-      };
-    }
-    return run();
-  }, [dishId, isCreateMode]);
+    return () => {
+      cancelled = true;
+    };
+  }, [dishId, isEditMode]);
 
   useEffect(() => {
     if (!isCreateMode && !dishId) {

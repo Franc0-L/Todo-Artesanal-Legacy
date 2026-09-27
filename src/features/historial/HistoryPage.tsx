@@ -49,13 +49,28 @@ function formatOptionType(value: string): string {
 }
 
 export function HistoryPage() {
-  const [items, setItems] = useState<HistoricalWeek[]>([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  // Los resultados se guardan junto a la clave de la consulta que los pidió:
+  // `items`, `total`, `loading` y `error` se derivan en el render. Así el
+  // efecto no sincroniza estado antes de pedir los datos y nunca se muestra
+  // el listado de un filtro, página o error anteriores.
+  const requestKey = `${fromDate}|${toDate}|${page}|${reloadToken}`;
+  const [result, setResult] = useState<{
+    key: string;
+    items: HistoricalWeek[];
+    total: number;
+  } | null>(null);
+  const [failure, setFailure] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+  const loading = result?.key !== requestKey;
+  const items = result?.key === requestKey ? result.items : [];
+  const total = result?.key === requestKey ? result.total : 0;
+  const error = failure?.key === requestKey ? failure.message : null;
   const [selectedWeekId, setSelectedWeekId] = useState<string | null>(null);
   const [weekDetail, setWeekDetail] = useState<HistoricalWeekDetail | null>(
     null,
@@ -67,38 +82,40 @@ export function HistoryPage() {
   const [unansweredError, setUnansweredError] = useState<string | null>(null);
   const detailRequestRef = useRef(0);
 
-  const loadWeeks = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const result = await listHistoricalWeeks({
-        fromDate: fromDate || undefined,
-        toDate: toDate || undefined,
-        page,
-        pageSize: PAGE_SIZE,
-      });
-      setItems(result.items);
-      setTotal(result.total);
-    } catch (loadError) {
-      setItems([]);
-      setTotal(0);
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "No se pudo cargar el historial.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [fromDate, page, toDate]);
+  // `reload` vuelve a consultar con los mismos filtros: se usa cuando hay que
+  // refrescar el listado sin cambiar la clave por otro motivo.
+  const reload = useCallback(() => setReloadToken((current) => current + 1), []);
 
   useEffect(() => {
-    function run() {
-      void loadWeeks();
-    }
-    run();
-  }, [loadWeeks]);
+    let cancelled = false;
+
+    void listHistoricalWeeks({
+      fromDate: fromDate || undefined,
+      toDate: toDate || undefined,
+      page,
+      pageSize: PAGE_SIZE,
+    })
+      .then((loaded) => {
+        if (cancelled) return;
+        setResult({ key: requestKey, items: loaded.items, total: loaded.total });
+        setFailure(null);
+      })
+      .catch((loadError: unknown) => {
+        if (cancelled) return;
+        setResult({ key: requestKey, items: [], total: 0 });
+        setFailure({
+          key: requestKey,
+          message:
+            loadError instanceof Error
+              ? loadError.message
+              : "No se pudo cargar el historial.",
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [fromDate, page, requestKey, toDate]);
 
   const openWeekDetail = useCallback(async (week: HistoricalWeek) => {
     const requestId = detailRequestRef.current + 1;
@@ -209,7 +226,7 @@ export function HistoryPage() {
       {error && (
         <div className="history-feedback history-feedback--error" role="alert">
           <p>{error}</p>
-          <button type="button" onClick={() => void loadWeeks()}>
+          <button type="button" onClick={reload}>
             Reintentar
           </button>
         </div>

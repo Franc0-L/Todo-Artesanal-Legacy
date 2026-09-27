@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { CancellationDrawer } from "./CancellationDrawer";
 import { deleteCancellation, listCancellations } from "./services/cancellations.service";
 import { listWeeks } from "../semanas/services/weeks.service";
@@ -28,16 +28,42 @@ export function CancelacionesPage() {
   const [daySelection, setDaySelection] = useState<{ weekId: string; weekDayId: string }>({ weekId: "", weekDayId: "" });
   const days = weekDays.weekId === weekId ? weekDays.days : [];
   const weekDayId = daySelection.weekId === weekId ? daySelection.weekDayId : "";
-  const [items, setItems] = useState<Cancellation[]>([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [createOpen, setCreateOpen] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [weeksLoading, setWeeksLoading] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+  // La lista se guarda junto a la clave de la consulta que la pidió: `items`,
+  // `total`, el `loading` y el error del listado se derivan en el render, así
+  // el efecto no sincroniza estado antes de pedir los datos y nunca se
+  // muestran los de un filtro, página o error anteriores.
+  const requestKey = `${weekId}|${weekDayId}|${page}|${reloadToken}`;
+  const [result, setResult] = useState<{
+    key: string;
+    items: Cancellation[];
+    total: number;
+  } | null>(null);
+  const [failure, setFailure] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+  // Sin semana elegida no hay consulta que hacer: el render muestra el aviso
+  // de "no hay semanas creadas".
+  const loading = weekId !== "" && result?.key !== requestKey;
+  const items = result?.key === requestKey ? result.items : [];
+  const total = result?.key === requestKey ? result.total : 0;
+  const listError = failure?.key === requestKey ? failure.message : null;
+  // Errores que no son del listado (carga de semanas, borrado).
   const [error, setError] = useState<string | null>(null);
-  const requestIdRef = useRef(0);
+  const visibleError = listError ?? error;
   const { confirm, confirmDialog } = useConfirm();
+
+  // `reload` vuelve a consultar con los mismos filtros: se usa cuando hay que
+  // refrescar el listado sin cambiar la clave por otro motivo.
+  const reload = useCallback(() => {
+    setError(null);
+    setReloadToken((current) => current + 1);
+  }, []);
 
   // `weeksLoading` arranca en `true` (estado inicial) y el efecto solo lo baja
   // al terminar la consulta: no hace falta volver a marcarlo al inicio.
@@ -71,41 +97,29 @@ export function CancelacionesPage() {
     return () => { cancelled = true; };
   }, [weekId]);
 
-  const loadCancellations = useCallback(async () => {
-    const requestId = ++requestIdRef.current;
-    if (!weekId) {
-      setItems([]);
-      setTotal(0);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await listCancellations({ weekId, weekDayId: weekDayId || undefined, page, pageSize: PAGE_SIZE });
-      if (requestId !== requestIdRef.current) return;
-      setItems(result.items);
-      setTotal(result.total);
-    } catch (loadError) {
-      if (requestId !== requestIdRef.current) return;
-      setItems([]);
-      setTotal(0);
-      setError(loadError instanceof Error ? loadError.message : "No se pudieron cargar las cancelaciones.");
-    } finally {
-      if (requestId === requestIdRef.current) setLoading(false);
-    }
-  }, [weekId, weekDayId, page]);
-
   useEffect(() => {
-    function run() {
-      void loadCancellations();
-    }
-    run();
-  }, [loadCancellations]);
+    if (!weekId) return;
 
-  function handleWeekChange(value: string) { setPage(1); setWeekId(value); setDaySelection({ weekId: value, weekDayId: "" }); }
-  function handleDayChange(value: string) { setPage(1); setDaySelection({ weekId, weekDayId: value }); }
-  function handleCreated() { setCreateOpen(false); if (page !== 1) setPage(1); else void loadCancellations(); }
+    let cancelled = false;
+
+    void listCancellations({ weekId, weekDayId: weekDayId || undefined, page, pageSize: PAGE_SIZE })
+      .then((loaded) => {
+        if (cancelled) return;
+        setResult({ key: requestKey, items: loaded.items, total: loaded.total });
+        setFailure(null);
+      })
+      .catch((loadError: unknown) => {
+        if (cancelled) return;
+        setResult({ key: requestKey, items: [], total: 0 });
+        setFailure({ key: requestKey, message: loadError instanceof Error ? loadError.message : "No se pudieron cargar las cancelaciones." });
+      });
+
+    return () => { cancelled = true; };
+  }, [page, requestKey, weekDayId, weekId]);
+
+  function handleWeekChange(value: string) { setPage(1); setError(null); setWeekId(value); setDaySelection({ weekId: value, weekDayId: "" }); }
+  function handleDayChange(value: string) { setPage(1); setError(null); setDaySelection({ weekId, weekDayId: value }); }
+  function handleCreated() { setCreateOpen(false); setPage(1); reload(); }
 
   async function handleDelete(cancellation: Cancellation) {
     const proceed = await confirm({
@@ -120,7 +134,7 @@ export function CancelacionesPage() {
     try {
       await deleteCancellation(cancellation.id);
       if (items.length === 1 && page > 1) setPage((current) => current - 1);
-      else void loadCancellations();
+      else reload();
     } catch (deleteError: unknown) {
       setError(deleteError instanceof Error ? deleteError.message : "No se pudo eliminar la cancelación (¿la semana está cerrada?).");
     } finally {
@@ -147,7 +161,7 @@ export function CancelacionesPage() {
         <div className="cancelaciones-filter"><label htmlFor="cancel-day">Día</label><select id="cancel-day" value={weekDayId} onChange={(event) => handleDayChange(event.target.value)} disabled={days.length === 0}><option value="">Todos</option>{days.map((day) => <option key={day.id} value={day.id}>{DAY_LABELS[day.dayOfWeek]} ({formatDate(day.date)})</option>)}</select></div>
       </div>
 
-      {error && <div className="cancelaciones-feedback cancelaciones-feedback--error" role="alert"><p>{error}</p><button type="button" onClick={() => void loadCancellations()}>Reintentar</button></div>}
+      {visibleError && <div className="cancelaciones-feedback cancelaciones-feedback--error" role="alert"><p>{visibleError}</p><button type="button" onClick={reload}>Reintentar</button></div>}
 
       <div className="cancelaciones-list-wrapper" aria-busy={loading}>
         {!weekId ? <div className="cancelaciones-feedback"><h2>No hay semanas creadas</h2><p>Creá una semana desde la sección Semanas.</p></div> : loading ? <p className="cancelaciones-feedback">Cargando cancelaciones…</p> : items.length === 0 ? <div className="cancelaciones-feedback"><h2>No hay cancelaciones para mostrar</h2><p>Probá cambiar los filtros.</p></div> : <>
@@ -158,7 +172,7 @@ export function CancelacionesPage() {
 
       {!loading && total > 0 && <nav className="cancelaciones-pagination" aria-label="Paginación de cancelaciones"><span>Página {page} de {totalPages} · {total} cancelación{total === 1 ? "" : "es"}</span><div><button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>Anterior</button><button type="button" disabled={page >= totalPages} onClick={() => setPage((current) => current + 1)}>Siguiente</button></div></nav>}
 
-      <CancellationDrawer open={createOpen} onClose={() => setCreateOpen(false)} onCreated={handleCreated} />
+      <CancellationDrawer key={createOpen ? "open" : "closed"} open={createOpen} onClose={() => setCreateOpen(false)} onCreated={handleCreated} />
       {confirmDialog}
     </section>
   );

@@ -71,6 +71,10 @@ export function MenuDrawer({
   onSaved,
   onVersionCreated,
 }: MenuDrawerProps) {
+  const isCreateMode = mode === "create";
+  // En modo edición el drawer arranca cargando la ficha: el estado inicial ya
+  // representa ese "cargando" y el efecto no necesita sincronizar estado.
+  const isEditMode = !isCreateMode && menuId !== null;
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<MenuWithCurrentVersion | null>(null);
   const [versions, setVersions] = useState<MenuVersionSummary[]>([]);
@@ -84,16 +88,11 @@ export function MenuDrawer({
     ComposerItem[]
   >([]);
 
-  // Cambia cada vez que el drawer se resetea (se abre para otro menú, o
-  // se abre en modo creación). Forzamos con esto que el buscador de
-  // platos vuelva a traer la lista por defecto, incluso si el término de
-  // búsqueda quedó vacío de la vez anterior (mismo valor no dispara el
-  // efecto por dependencias).
-  const [composerSessionKey, setComposerSessionKey] = useState(0);
-
   const [dishQuery, setDishQuery] = useState("");
   const [dishResults, setDishResults] = useState<DishListItem[]>([]);
-  const [dishSearchLoading, setDishSearchLoading] = useState(false);
+  // Arranca en `true` porque el efecto siempre dispara una búsqueda al
+  // montar (el drawer se remonta por `key` en MenusPage).
+  const [dishSearchLoading, setDishSearchLoading] = useState(true);
   const [dishSearchError, setDishSearchError] = useState<string | null>(null);
   const [resolvingDishId, setResolvingDishId] = useState<string | null>(null);
   const [composerError, setComposerError] = useState<string | null>(null);
@@ -108,7 +107,7 @@ export function MenuDrawer({
   const autoNameRef = useRef<string | null>(null);
   const autoPriceRef = useRef<string | null>(null);
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(isEditMode);
   const [saving, setSaving] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
   const [versionSaving, setVersionSaving] = useState(false);
@@ -118,7 +117,6 @@ export function MenuDrawer({
 
   const { confirm, confirmDialog } = useConfirm();
 
-  const isCreateMode = mode === "create";
   const currentVersion = menu?.currentVersion ?? null;
   const mainItem = composerItems.find((item) => item.role === "main") ?? null;
   const sideItems = composerItems.filter((item) => item.role === "side");
@@ -132,45 +130,13 @@ export function MenuDrawer({
       serializeComposer(composerItems) !==
         serializeComposer(baselineComposerItems);
 
-  function resetState() {
-    setMenu(null);
-    setVersions([]);
-    setVersionForm(EMPTY_VERSION_FORM);
-    setComposerItems([]);
-    setBaselineVersionForm(EMPTY_VERSION_FORM);
-    setBaselineComposerItems([]);
-    setDishQuery("");
-    setDishResults([]);
-    setDishSearchError(null);
-    setComposerError(null);
-    setError(null);
-    setVersionError(null);
-    setVersionMessage(null);
-    setSuggesting(false);
-    suggestionPoolRef.current = null;
-    previousSuggestionRef.current = null;
-    autoNameRef.current = null;
-    autoPriceRef.current = null;
-    setComposerSessionKey((key) => key + 1);
-  }
-
+  // La ficha se reinicia por remonte (ver `key` en MenusPage): el estado
+  // inicial ya es el correcto y el efecto solo resuelve el fetch, sin
+  // sincronizar estado antes del primer `await`.
   useEffect(() => {
-    function run() {
-      if (isCreateMode) {
-      resetState();
-      setLoading(false);
-      return;
-    }
-
-    if (!menuId) {
-      resetState();
-      setLoading(false);
-      return;
-    }
+    if (!isEditMode || !menuId) return;
 
     let cancelled = false;
-    setLoading(true);
-    resetState();
 
     void Promise.all([getMenu(menuId), listMenuVersions(menuId)])
       .then(([menuResult, versionsResult]) => {
@@ -217,12 +183,10 @@ export function MenuDrawer({
         }
       });
 
-      return () => {
-        cancelled = true;
-      };
-    }
-    return run();
-  }, [menuId, isCreateMode]);
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditMode, menuId]);
 
   useEffect(() => {
     if (!isCreateMode && !menuId) {
@@ -277,8 +241,9 @@ export function MenuDrawer({
   // Búsqueda de platos para armar la composición. Sin texto cargado
   // muestra directamente los primeros platos activos (sin esperar
   // debounce); con texto, espera una pausa de tipeo antes de buscar.
-  // `composerSessionKey` fuerza un refetch cada vez que el drawer se
-  // resetea, aunque el término de búsqueda ya estuviera vacío antes.
+  // El estado del buscador (`dishSearchLoading`/`dishSearchError`) se marca
+  // desde el evento que cambia la consulta (ver `handleDishQueryChange`): el
+  // efecto solo programa la búsqueda y resuelve sus resultados.
   useEffect(() => {
     if (dishSearchDebounceRef.current !== null) {
       window.clearTimeout(dishSearchDebounceRef.current);
@@ -286,12 +251,7 @@ export function MenuDrawer({
 
     const trimmed = dishQuery.trim();
     const delay = trimmed ? DISH_SEARCH_DEBOUNCE_MS : 0;
-
-    function initSearch() {
-      setDishSearchLoading(true);
-      setDishSearchError(null);
-    }
-    initSearch();
+    let cancelled = false;
 
     dishSearchDebounceRef.current = window.setTimeout(() => {
       void listDishes({
@@ -299,8 +259,11 @@ export function MenuDrawer({
         active: true,
         pageSize: DISH_SEARCH_PAGE_SIZE,
       })
-        .then((result) => setDishResults(result.items))
+        .then((result) => {
+          if (!cancelled) setDishResults(result.items);
+        })
         .catch((searchError: unknown) => {
+          if (cancelled) return;
           setDishResults([]);
           setDishSearchError(
             searchError instanceof Error
@@ -308,15 +271,24 @@ export function MenuDrawer({
               : "No se pudo buscar platos.",
           );
         })
-        .finally(() => setDishSearchLoading(false));
+        .finally(() => {
+          if (!cancelled) setDishSearchLoading(false);
+        });
     }, delay);
 
     return () => {
+      cancelled = true;
       if (dishSearchDebounceRef.current !== null) {
         window.clearTimeout(dishSearchDebounceRef.current);
       }
     };
-  }, [dishQuery, composerSessionKey]);
+  }, [dishQuery]);
+
+  function handleDishQueryChange(value: string) {
+    setDishSearchLoading(true);
+    setDishSearchError(null);
+    setDishQuery(value);
+  }
 
   // Autocompletar nombre y precio a partir de la composición.
   //
@@ -741,7 +713,7 @@ export function MenuDrawer({
           id="menu-dish-search"
           type="search"
           value={dishQuery}
-          onChange={(event) => setDishQuery(event.target.value)}
+          onChange={(event) => handleDishQueryChange(event.target.value)}
           placeholder="Buscar plato activo por nombre"
         />
 

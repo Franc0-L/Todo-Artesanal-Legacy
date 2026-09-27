@@ -15,6 +15,33 @@ function errorMessage(error: unknown): string {
     : "Ocurrió un error de autenticación.";
 }
 
+/**
+ * Resuelve el estado de autenticación del usuario actual. Vive fuera del
+ * componente a propósito: el efecto de rehidratación no puede llamar a nada
+ * del componente que fije estado de forma sincrónica (regla
+ * `react-hooks/set-state-in-effect`), así que devuelve el estado y el efecto
+ * solo lo aplica dentro de sus callbacks.
+ */
+async function resolveAuthState(): Promise<AuthState> {
+  try {
+    const user = await getAuthenticatedUser();
+
+    if (!user) {
+      return { status: "signed-out", user: null, error: null };
+    }
+
+    const isAdmin = await isCurrentUserAdmin(user.id);
+
+    return {
+      status: isAdmin ? "signed-in" : "forbidden",
+      user: isAdmin ? user : null,
+      error: isAdmin ? null : "Esta cuenta no tiene permisos de administrador.",
+    };
+  } catch (error) {
+    return { status: "error", user: null, error: errorMessage(error) };
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({
     status: "loading",
@@ -22,45 +49,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     error: null,
   });
 
-  const refreshAuth = useCallback(async () => {
-    try {
-      const user = await getAuthenticatedUser();
-
-      if (!user) {
-        setState({ status: "signed-out", user: null, error: null });
-        return;
-      }
-
-      const isAdmin = await isCurrentUserAdmin(user.id);
-
-      setState({
-        status: isAdmin ? "signed-in" : "forbidden",
-        user: isAdmin ? user : null,
-        error: isAdmin
-          ? null
-          : "Esta cuenta no tiene permisos de administrador.",
-      });
-    } catch (error) {
-      setState({
-        status: "error",
-        user: null,
-        error: errorMessage(error),
-      });
-    }
-  }, []);
-
   useEffect(() => {
-    function init() {
-      void refreshAuth();
-    }
-    init();
+    let cancelled = false;
 
-    const { data } = supabase.auth.onAuthStateChange(() => {
-      void refreshAuth();
+    void resolveAuthState().then((next) => {
+      if (!cancelled) setState(next);
     });
 
-    return () => data.subscription.unsubscribe();
-  }, [refreshAuth]);
+    const { data } = supabase.auth.onAuthStateChange(() => {
+      void resolveAuthState().then((next) => {
+        if (cancelled) return;
+        setState(next);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      data.subscription.unsubscribe();
+    };
+  }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
     const user = await signInAdmin(email, password);

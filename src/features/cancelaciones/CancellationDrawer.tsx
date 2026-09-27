@@ -48,69 +48,53 @@ export function CancellationDrawer({
   const [clientQuery, setClientQuery] = useState("");
   const [selectedClientId, setSelectedClientId] = useState("");
 
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(open);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const { confirm, confirmDialog } = useConfirm();
   const dirty = selectedDayId !== "" || selectedClientId !== "";
 
-  function resetState() {
-    setActiveWeek(null);
-    setDays([]);
-    setExpectedClients([]);
-    setSelectedDayId("");
-    setClientQuery("");
-    setSelectedClientId("");
-    setError(null);
-  }
-
+  // El formulario se reinicia por remonte (ver `key` en CancelacionesPage):
+  // el estado inicial ya es el correcto y el efecto solo resuelve el fetch,
+  // sin sincronizar estado antes del primer `await`.
   useEffect(() => {
-    function run() {
-      if (!open) {
-        resetState();
-        setLoading(false);
-        return;
-      }
+    if (!open) return;
 
-      let cancelled = false;
-      setLoading(true);
-      resetState();
+    let cancelled = false;
 
-      void getActiveWeek()
-        .then((week) => {
-          if (cancelled) return null;
-          setActiveWeek(week);
-          if (!week) return null;
-          return Promise.all([
-            listWeekDays(week.id),
-            getExpectedClients(week.id),
-          ]);
-        })
-        .then((result) => {
-          if (cancelled || !result) return;
-          const [daysResult, expectedResult] = result;
-          setDays(daysResult);
-          setExpectedClients(expectedResult.items);
-        })
-        .catch((loadError: unknown) => {
-          if (!cancelled) {
-            setError(
-              loadError instanceof Error
-                ? loadError.message
-                : "No se pudo cargar la semana activa.",
-            );
-          }
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
+    void getActiveWeek()
+      .then((week) => {
+        if (cancelled) return null;
+        setActiveWeek(week);
+        if (!week) return null;
+        return Promise.all([
+          listWeekDays(week.id),
+          getExpectedClients(week.id),
+        ]);
+      })
+      .then((result) => {
+        if (cancelled || !result) return;
+        const [daysResult, expectedResult] = result;
+        setDays(daysResult);
+        setExpectedClients(expectedResult.items);
+      })
+      .catch((loadError: unknown) => {
+        if (!cancelled) {
+          setError(
+            loadError instanceof Error
+              ? loadError.message
+              : "No se pudo cargar la semana activa.",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
 
-      return () => {
-        cancelled = true;
-      };
-    }
-    return run();
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {

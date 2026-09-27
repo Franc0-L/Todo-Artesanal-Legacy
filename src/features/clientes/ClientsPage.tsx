@@ -18,43 +18,81 @@ const SEARCH_DEBOUNCE_MS = 350;
 type StatusFilter = "all" | "active" | "inactive";
 
 export function ClientsPage() {
-  const [items, setItems] = useState<ClientListItem[]>([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
   const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  // Los resultados se guardan junto a la clave de la consulta que los pidió:
+  // `items`, `total`, `loading` y `error` se derivan en el render. Así el
+  // efecto no sincroniza estado antes de pedir los datos y nunca se muestra
+  // el listado de un filtro, página o error anteriores.
+  const requestKey = `${page}|${search}|${statusFilter}|${reloadToken}`;
+  const [result, setResult] = useState<{
+    key: string;
+    items: ClientListItem[];
+    total: number;
+  } | null>(null);
+  const [failure, setFailure] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+  const loading = result?.key !== requestKey;
+  const items = result?.key === requestKey ? result.items : [];
+  const total = result?.key === requestKey ? result.total : 0;
+  const error = failure?.key === requestKey ? failure.message : null;
 
   const searchDebounceRef = useRef<number | null>(null);
 
-  const loadClients = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const result = await listClients({
-        search: search || undefined,
-        active: statusFilter === "all" ? undefined : statusFilter === "active",
-        page,
-        pageSize: PAGE_SIZE,
+  // `reload` vuelve a consultar con los mismos filtros: se usa cuando hay que
+  // refrescar el listado sin cambiar la clave por otro motivo.
+  const reload = useCallback(() => setReloadToken((current) => current + 1), []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void listClients({
+      search: search || undefined,
+      active: statusFilter === "all" ? undefined : statusFilter === "active",
+      page,
+      pageSize: PAGE_SIZE,
+    })
+      .then((loaded) => {
+        if (cancelled) return;
+        setResult({ key: requestKey, items: loaded.items, total: loaded.total });
+        setFailure(null);
+      })
+      .catch((loadError: unknown) => {
+        if (cancelled) return;
+        setResult({ key: requestKey, items: [], total: 0 });
+        setFailure({
+          key: requestKey,
+          message:
+            loadError instanceof Error
+              ? loadError.message
+              : "No se pudieron cargar los clientes.",
+        });
       });
-      setItems(result.items);
-      setTotal(result.total);
-    } catch (loadError) {
-      setItems([]);
-      setTotal(0);
-      setError(
-        loadError instanceof Error
-          ? loadError.message
-          : "No se pudieron cargar los clientes.",
+
+    return () => {
+      cancelled = true;
+    };
+  }, [page, requestKey, search, statusFilter]);
+
+  // Actualiza el listado ya cargado (por ejemplo tras guardar en el drawer)
+  // sin disparar una consulta nueva.
+  const patchItems = useCallback(
+    (updater: (current: ClientListItem[]) => ClientListItem[]) => {
+      setResult((current) =>
+        current && current.key === requestKey
+          ? { ...current, items: updater(current.items) }
+          : current,
       );
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, statusFilter]);
+    },
+    [requestKey],
+  );
 
   const handleCloseDrawer = useCallback(() => {
     setSelectedClientId(null);
@@ -67,36 +105,32 @@ export function ClientsPage() {
       setSelectedClientId(created.id);
       setPage(1);
       // Si ya estábamos en la página 1 con los mismos filtros, cambiar
-      // `page` a 1 no dispara una nueva carga por sí solo (la dependencia
-      // no cambia). Forzamos el refresco para que el cliente recién creado
-      // aparezca sin necesidad de tocar filtros o paginación a mano.
-      void loadClients();
+      // `page` a 1 no dispara una consulta nueva por sí solo. `reload`
+      // fuerza el refresco para que el cliente recién creado aparezca sin
+      // necesidad de tocar filtros o paginación a mano.
+      reload();
     },
-    [loadClients],
+    [reload],
   );
 
-  const handleClientSaved = useCallback((updated: Client) => {
-    setItems((current) =>
-      current.map((item) =>
-        item.id === updated.id
-          ? {
-              ...item,
-              name: updated.name,
-              phone: updated.phone,
-              address: updated.address,
-              active: updated.active,
-            }
-          : item,
-      ),
-    );
-  }, []);
-
-  useEffect(() => {
-    function run() {
-      void loadClients();
-    }
-    run();
-  }, [loadClients]);
+  const handleClientSaved = useCallback(
+    (updated: Client) => {
+      patchItems((current) =>
+        current.map((item) =>
+          item.id === updated.id
+            ? {
+                ...item,
+                name: updated.name,
+                phone: updated.phone,
+                address: updated.address,
+                active: updated.active,
+              }
+            : item,
+        ),
+      );
+    },
+    [patchItems],
+  );
 
   // Tras un borrado, si la página quedó vacía volvemos una atrás; si no,
   // recargamos con los mismos filtros.
@@ -109,8 +143,8 @@ export function ClientsPage() {
       return;
     }
 
-    void loadClients();
-  }, [items.length, page, loadClients]);
+    reload();
+  }, [items.length, page, reload]);
 
   // Búsqueda en vivo: a medida que se escribe, se espera una breve pausa
   // (debounce) antes de disparar la consulta, para no hacer un pedido por
@@ -212,7 +246,7 @@ export function ClientsPage() {
       {error && (
         <div className="clients-feedback clients-feedback--error" role="alert">
           <p>{error}</p>
-          <button type="button" onClick={() => void loadClients()}>
+          <button type="button" onClick={reload}>
             Reintentar
           </button>
         </div>
@@ -293,7 +327,10 @@ export function ClientsPage() {
         </nav>
       )}
 
+      {/* El `key` remonta el drawer al cambiar de cliente o de modo: el
+          formulario arranca limpio sin resetear estado dentro de un efecto. */}
       <ClientDrawer
+        key={createDrawerOpen ? "create" : `edit:${selectedClientId ?? "closed"}`}
         mode={createDrawerOpen ? "create" : "edit"}
         clientId={createDrawerOpen ? null : selectedClientId}
         onClose={handleCloseDrawer}

@@ -80,23 +80,26 @@ export function ClientDrawer({
   onSaved,
   onDeleted,
 }: ClientDrawerProps) {
+  const isCreateMode = mode === "create";
+  // En modo edición el drawer arranca cargando la ficha: el estado inicial ya
+  // representa ese "cargando" y el efecto no necesita sincronizar estado.
+  const isEditMode = !isCreateMode && clientId !== null;
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [client, setClient] = useState<Client | null>(null);
   const [form, setForm] = useState<ClientFormState>(EMPTY_FORM);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(isEditMode);
   const [saving, setSaving] = useState(false);
   const [statusSaving, setStatusSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [hasActiveToken, setHasActiveToken] = useState<boolean | null>(null);
-  const [tokenLoading, setTokenLoading] = useState(false);
+  const [tokenLoading, setTokenLoading] = useState(isEditMode);
   const [tokenRotating, setTokenRotating] = useState(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [generatedToken, setGeneratedToken] = useState<string | null>(null);
   const [copyMessage, setCopyMessage] = useState<string | null>(null);
   const { confirm, confirmDialog } = useConfirm();
-  const isCreateMode = mode === "create";
   const dirty = isCreateMode
     ? hasCreateChanges(form)
     : client
@@ -108,74 +111,50 @@ export function ClientDrawer({
         form.allowsHalfPortion !== client.allowsHalfPortion
       : false;
 
+  // La ficha se reinicia por remonte (ver `key` en ClientsPage): el estado
+  // inicial ya es el correcto y el efecto solo resuelve el fetch, sin
+  // sincronizar estado antes del primer `await`.
   useEffect(() => {
-    function run() {
-      if (isCreateMode || !clientId) {
-        setClient(null);
-        setForm(EMPTY_FORM);
-        setError(null);
-        setSaveMessage(null);
-        setLoading(false);
-        setHasActiveToken(null);
-        setTokenLoading(false);
-        setTokenError(null);
-        setTokenRotating(false);
-        setGeneratedToken(null);
-        setCopyMessage(null);
-        setDeleting(false);
-        return;
-      }
-      let cancelled = false;
-      setLoading(true);
-      setClient(null);
-      setForm(EMPTY_FORM);
-      setError(null);
-      setSaveMessage(null);
-      setHasActiveToken(null);
-      setTokenLoading(true);
-      setTokenError(null);
-      setGeneratedToken(null);
-      setCopyMessage(null);
-      setDeleting(false);
-      void getClient(clientId)
-        .then((result) => {
-          if (!cancelled) {
-            setClient(result);
-            setForm(toFormState(result));
-          }
-        })
-        .catch((e: unknown) => {
-          if (!cancelled)
-            setError(
-              e instanceof Error
-                ? e.message
-                : "No se pudo cargar la ficha del cliente.",
-            );
-        })
-        .finally(() => {
-          if (!cancelled) setLoading(false);
-        });
-      void getActiveTokenStatus(clientId)
-        .then((status) => {
-          if (!cancelled) setHasActiveToken(status.hasActiveToken);
-        })
-        .catch((e: unknown) => {
-          if (!cancelled)
-            setTokenError(
-              e instanceof Error
-                ? e.message
-                : "No se pudo consultar el estado del enlace personal.",
-            );
-        })
-        .finally(() => {
-          if (!cancelled) setTokenLoading(false);
-        });
-      return () => {
-        cancelled = true;
-      };
-    }
-    return run();
-  }, [clientId, isCreateMode]);
+    if (!isEditMode || !clientId) return;
+
+    let cancelled = false;
+    void getClient(clientId)
+      .then((result) => {
+        if (!cancelled) {
+          setClient(result);
+          setForm(toFormState(result));
+        }
+      })
+      .catch((e: unknown) => {
+        if (!cancelled)
+          setError(
+            e instanceof Error
+              ? e.message
+              : "No se pudo cargar la ficha del cliente.",
+          );
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    void getActiveTokenStatus(clientId)
+      .then((status) => {
+        if (!cancelled) setHasActiveToken(status.hasActiveToken);
+      })
+      .catch((e: unknown) => {
+        if (!cancelled)
+          setTokenError(
+            e instanceof Error
+              ? e.message
+              : "No se pudo consultar el estado del enlace personal.",
+          );
+      })
+      .finally(() => {
+        if (!cancelled) setTokenLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [clientId, isEditMode]);
 
   useEffect(() => {
     if (!isCreateMode && !clientId) return;
