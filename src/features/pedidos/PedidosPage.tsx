@@ -121,15 +121,23 @@ export function PedidosPage() {
 
   const handleOrderCreated = useCallback(() => {
     setCreateDrawerOpen(false);
-    setPage(1);
-  }, []);
+    if (page === 1) {
+      void loadOrders();
+    } else {
+      setPage(1);
+    }
+  }, [loadOrders, page]);
 
   const handleOrderSaved = useCallback(() => { void loadOrders(); }, [loadOrders]);
 
   const handleOrderDeleted = useCallback(() => {
     setSelectedOrderId(null);
-    void loadOrders();
-  }, [loadOrders]);
+    if (items.length === 1 && page > 1) {
+      setPage((current) => current - 1);
+    } else {
+      void loadOrders();
+    }
+  }, [items.length, loadOrders, page]);
 
   function handleWeekChange(value: string) { setPage(1); setWeekId(value); }
   function handleDayChange(value: string) { setPage(1); setWeekDayId(value); }
