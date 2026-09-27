@@ -19,6 +19,7 @@ de negocio se aplican, y qué invariantes están en juego.
 10. [Crear un plato con su primera versión](#10-crear-un-plato-con-su-primera-versión)
 11. [Crear un menú compuesto](#11-crear-un-menú-compuesto)
 12. [Modificar el precio de un plato](#12-modificar-el-precio-de-un-plato)
+13. [Cliente abre su enlace](#13-cliente-abre-su-enlace)
 
 ---
 
@@ -59,11 +60,15 @@ sequenceDiagram
 3. Generar el link personal con `rotateClientToken`. **El token
    plaintext se muestra una única vez**. El admin lo copia y lo manda
    al cliente (WhatsApp, email, etc.).
+4. Cuando el cliente abre el link, el token se canjea por un JWT de 1 h
+   (flujo #13). Rotar el link después invalida el enlace, pero no un JWT
+   ya emitido.
 
 **Invariantes:**
 
 - El token se almacena hasheado.
 - Como máximo un token vigente por cliente.
+- El plaintext solo se devuelve en la respuesta de la rotación.
 
 ---
 
@@ -87,15 +92,16 @@ sequenceDiagram
     DB-->>W: week_id
     W-->>A: Week (draft)
 
-    loop Por cada día y opción
-        A->>O: addDayOption({ weekDayId, optionType, dishVersionId|menuVersionId })
+    loop Por cada día: una General y una Opcional
+        A->>O: addDayOption({ weekDayId, optionType, offerModality, ... })
         O->>DB: INSERT week_day_options
+        Note over DB: trigger unicidad de producto<br/>(no repetir entre días)
         DB-->>O: WeekDayOption
     end
 
     A->>W: activateWeek(weekId)
     W->>DB: RPC activate_week
-    Note over DB: valida 5 días,<br/>cada uno con opciones,<br/>menús con 1 main
+    Note over DB: valida 5 días, cada uno con<br/>General + Opcional y menús con 1 main
     DB->>DB: congela week_expected_clients
     DB->>DB: UPDATE weeks SET status='active'
     DB-->>W: ok
@@ -105,12 +111,14 @@ sequenceDiagram
 **Pasos:**
 
 1. `createWeek` con lunes y viernes. El RPC crea la semana y sus 5 días.
-2. Para cada día: agregar opciones con `addDayOption`. Cada opción es un
-   plato o un menú.
+2. Para cada día: agregar **dos** opciones con `addDayOption`, una con
+   `offerModality: 'general'` y otra con `'opcional'`. Cada opción es un
+   plato o un menú. El mismo plato/menú no puede repetirse en otro día
+   de la misma semana.
 3. `activateWeek`. El RPC valida:
 
    - 5 días presentes.
-   - Cada día con al menos una opción.
+   - **Cada día con una opción General y una opción Opcional.**
    - Cada menú usado con exactamente 1 main.
    - No hay otra semana activa.
 
@@ -121,11 +129,16 @@ sequenceDiagram
 - #6: la semana no pertenece a un cliente.
 - #14: la oferta es común.
 - Solo una semana activa a la vez.
+- Un producto no se repite entre días de la misma semana.
 
 **Errores típicos:**
 
 - `23P01` (CONFLICT): rango se superpone con otra semana.
-- `BUSINESS_RULE`: validaciones de activate fallan.
+- `BUSINESS_RULE`: validaciones de activate fallan (día sin General u
+  Opcional, menú sin main, etc.).
+- `BUSINESS_RULE`: "ya está utilizado en otro día de esta semana"
+  (trigger de unicidad — **solo aplicado en local**, ver
+  `docs/estado-fases-1-5.md`).
 
 ---
 
@@ -146,7 +159,7 @@ sequenceDiagram
     S->>S: valida forma (UUID, modality, quantity)
     S->>DB: INSERT INTO orders
     DB->>DB: trigger validate_order
-    Note over DB: valida semana active<br/>+ cliente esperado<br/>+ allows_half_portion
+    Note over DB: valida semana active<br/>+ cliente esperado<br/>+ modality = offerModality<br/>+ allows_half_portion
     DB->>DB: applied_price := calculate_order_price(...)
     DB-->>S: OrderDetail
     S-->>C: OrderDetail
@@ -154,13 +167,21 @@ sequenceDiagram
 
 **Pasos:**
 
-1. El cliente ve la oferta activa (`getWeekOffer`).
-2. Elige una opción y una modalidad.
-3. `createOrder`. **No envía `applied_price`**: el trigger lo calcula.
+1. El cliente ve la oferta activa (`getWeekOffer` sobre la semana activa;
+   RLS limita a `weeks.active`).
+2. Elige una opción. **La modalidad no es libre**: si elige la opción
+   General del día, el pedido es `general`; si elige la Opcional, es
+   `opcional`. Solo puede sumar `media_vianda` (flujo #4) si el cliente
+   tiene `allows_half_portion`.
+3. `createOrder({ clientId, weekDayOptionId, modality, quantity })`.
+   **No envía `applied_price`**: el trigger lo calcula.
 4. El trigger `validate_order`:
 
-   - Verifica que la semana esté `active`.
+   - Verifica que la opción exista y que su semana esté `active`.
    - Verifica que el cliente esté en `week_expected_clients`.
+   - Verifica que `modality` coincida con el `offerModality` de la
+     opción y la **normaliza** si no (igual en local y en producción;
+     sin efecto práctico porque la UI manda la modalidad de la opción).
    - Calcula `applied_price` con `calculate_order_price`.
    - Congela el precio en la fila.
 
@@ -367,6 +388,15 @@ sequenceDiagram
 - Máximo un token vigente por cliente.
 - El token nunca se almacena en plaintext.
 
+**Limitación conocida:**
+
+- Rotar invalida el **enlace**, no un JWT ya emitido con él: ese JWT
+  sigue válido hasta 1 h. Si hace falta revocación inmediata, hay que
+  agregar una denylist en `authenticate-client-token`.
+- En la pestaña del cliente, la sesión guardada queda inservible sola:
+  `readStoredSession` compara el `linkToken` guardado y devuelve `null`
+  si no coincide con el de la URL.
+
 **Cuándo se rota:**
 
 - El link se filtró por error.
@@ -529,19 +559,81 @@ Milanesa
 
 ---
 
+## 13. Cliente abre su enlace
+
+**Actor:** cliente (sin cuenta, con su link `/menu/:token`).
+
+**Objetivo:** resolver la sesión y mostrar la semana activa.
+
+```mermaid
+sequenceDiagram
+    participant C as Cliente
+    participant P as ClientSessionProvider
+    participant EF as Edge Function
+    participant DB as PostgREST
+
+    C->>P: monta /menu/:token (linkToken en la URL)
+    P->>P: ¿sessionStorage válida para ESTE linkToken?
+    alt no hay sesión válida
+        P->>EF: POST authenticate-client-token { token }
+        EF->>DB: sha256(token) → client_tokens vigente
+        EF-->>P: { accessToken ES256 (1 h), clientId, expiresIn }
+        P->>P: storeSession en sessionStorage
+    end
+    P-->>C: estado "authenticated"
+    C->>DB: getActiveWeek(client propio con el JWT)
+    DB-->>C: Week | null
+```
+
+**Pasos:**
+
+1. Al montar, el provider valida el formato del `linkToken`
+   (`LINK_TOKEN_PATTERN`) y mira `sessionStorage`.
+2. Si no hay sesión o no corresponde a ese `linkToken`, canjea el token
+   por un JWT con `authenticateClientToken`.
+3. Guarda `{ linkToken, accessToken, clientId, expiresAt }` y expone la
+   sesión por contexto (`ClientSessionProvider`).
+4. `ClientMenuPage` consulta la semana activa con **un cliente Supabase
+   propio** (`createClientWithToken`), usando un `sessionId` monotónico
+   como clave de la query.
+5. En segundo plano renueva el JWT 60 s antes de expirar, sin cambiar el
+   estado visible.
+
+**Estados que maneja la página:**
+
+| Estado                    | Cuándo                                                                        |
+| ------------------------- | ----------------------------------------------------------------------------- |
+| Autenticando              | Resolviendo el canje o la sesión guardada.                                    |
+| Link inválido / rotado    | `AppError("UNAUTHORIZED")` (formato malo, token desconocido o vencido).       |
+| Error de red / servidor   | Falló la llamada a la Edge Function. Botón "Reintentar" → `reauthenticate()`. |
+| Cargando semana           | Sesión ok, pendiente `getActiveWeek`.                                         |
+| Sin semana activa         | `getActiveWeek` devuelve `null`.                                              |
+| Semana cerrada / borrador | La semana activa no existe o está `closed`.                                   |
+
+**Invariantes:**
+
+- La sesión se guarda junto al `linkToken` que la produjo (el mismo que
+  ya está en la URL de la pestaña): no se almacena ningún secreto nuevo,
+  solo el JWT de corta vida y su vencimiento.
+- La sesión es por pestaña (`sessionStorage`): cerrar la pestaña la borra.
+- Rotar el link invalida la sesión guardada (comparación de `linkToken`).
+
+---
+
 ## Resumen de invariantes por flujo
 
-| Flujo | Invariantes |
-|---|---|
-| Onboarding | Token hasheado, 1 vigente por cliente |
-| Crear y activar semana | #6, #14, semana única active |
-| Cliente pide | #3, #4 |
-| Cliente pide media vianda | Media vianda = modalidad, no categoría |
-| Cliente cancela | #12, cancelar = responder |
-| Admin cierra | #11 |
-| Ver sin responder | #13 |
-| Rotar token | #7 |
-| Dar de baja | #5, #15 |
-| Crear plato | Nueva versión = nueva edición |
-| Crear menú | 1 main + 0..N side |
-| Modificar precio | #3, #4, #15 |
+| Flujo                     | Invariantes                              |
+| ------------------------- | ---------------------------------------- |
+| Onboarding                | Token hasheado, 1 vigente por cliente    |
+| Crear y activar semana    | #6, #14, semana única active             |
+| Cliente pide              | #3, #4                                   |
+| Cliente pide media vianda | Media vianda = modalidad, no categoría   |
+| Cliente cancela           | #12, cancelar = responder                |
+| Admin cierra              | #11                                      |
+| Ver sin responder         | #13                                      |
+| Rotar token               | #7                                       |
+| Dar de baja               | #5, #15                                  |
+| Crear plato               | Nueva versión = nueva edición            |
+| Crear menú                | 1 main + 0..N side                       |
+| Modificar precio          | #3, #4, #15                              |
+| Cliente abre su enlace    | Sesión por pestaña, JWT 1 h, RLS cliente |

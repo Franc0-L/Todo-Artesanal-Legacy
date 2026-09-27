@@ -1,0 +1,113 @@
+.client-menu {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+}
+
+.client-menu__header {
+  margin-bottom: 24px;
+}
+
+.client-menu__eyebrow {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.client-menu h1 {
+  margin: 0;
+  font-size: clamp(1.6rem, 4vw, 2.1rem);
+  color: var(--text-main);
+}
+
+/* =========================================================
+   Feedback: cargando / error de sesión o de consulta
+   ========================================================= */
+
+.client-menu__feedback {
+  margin: 24px 0;
+  padding: 16px;
+  border-radius: 10px;
+  font-size: 0.95rem;
+}
+
+.client-menu__feedback--loading {
+  background: var(--bg-subtle);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.client-menu__feedback--error {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid var(--danger-border);
+}
+
+.client-menu__feedback button {
+  padding: 6px 12px;
+  border: 1px solid var(--danger);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--danger);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.client-menu__feedback button:hover {
+  background: var(--bg-hover);
+}
+
+.client-menu__feedback button:focus-visible {
+  outline: 3px solid var(--primary-focus);
+  outline-offset: 2px;
+}
+
+/* =========================================================
+   Tarjeta de la semana activa
+   ========================================================= */
+
+.client-menu__week {
+  margin-top: 24px;
+  padding: 20px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--bg-surface);
+}
+
+.client-menu__week-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.client-menu__week h2 {
+  margin: 0;
+  font-size: 1.15rem;
+  color: var(--text-main);
+}
+
+.client-menu__badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--badge-active-bg);
+  color: var(--badge-active-text);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.client-menu__week-note {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}

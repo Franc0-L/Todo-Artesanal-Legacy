@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../../../lib/supabase";
 import {
   runSupabase,
@@ -5,7 +6,7 @@ import {
   runSupabaseOrThrow,
 } from "../../../lib/error-handler";
 import { AppError } from "../../../lib/errors";
-import type { Tables } from "../../../types/database";
+import type { Database, Tables } from "../../../types/database";
 import type { WeekStatus } from "../../../types/domain";
 import type { CreateWeekInput, UpdateWeekInput, Week } from "../types/week";
 import type {
@@ -71,10 +72,17 @@ export async function getWeek(weekId: string): Promise<Week> {
  *
  * Es válido que devuelva null: entre el cierre de una semana y
  * la activación de la siguiente no hay semana activa.
+ *
+ * `client` permite correr la misma consulta desde el área de cliente
+ * (`/menu/:token`) con el JWT de cliente. La query es idéntica porque la
+ * policy `weeks_client_select_active` ya limita al cliente a la semana
+ * activa: quien restringe las filas es RLS, no el servicio.
  */
-export async function getActiveWeek(): Promise<Week | null> {
+export async function getActiveWeek(
+  client: SupabaseClient<Database> = supabase,
+): Promise<Week | null> {
   const row = await runSupabase<WeekRow>(() =>
-    supabase
+    client
       .from("weeks")
       .select(WEEK_COLUMNS)
       .eq("status", "active")

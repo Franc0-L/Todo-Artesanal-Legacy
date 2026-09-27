@@ -55,23 +55,32 @@ flowchart LR
         A2 --> A3[RLS admin]
         A3 --> A4[private.is_admin]
         A4 --> A5[Acceso total<br/>a las 15 tablas]
+        A5 -->|POST rotate-client-token| A6[Link personal<br/>token una sola vez]
     end
 
     subgraph Cliente
-        C1[Cliente con token] --> C2[Edge Function<br/>rotate-client-token]
-        C2 -.->|una vez| C3[Token plaintext]
-        C1 -->|cookie o storage| C4[JWT con claim client_id]
+        C1[Cliente abre<br/>/menu/:token] -->|POST authenticate-client-token| C2[Edge Function<br/>JWT ES256 por 1 h]
+        C2 --> C3[sessionStorage<br/>de la pestaña]
+        C3 --> C4[createClientWithToken<br/>JWT con claim client_id]
         C4 --> C5[RLS cliente]
         C5 --> C6[Acceso limitado:<br/>sus datos + oferta active]
+        A6 -.->|por WhatsApp, etc.| C1
     end
 ```
 
 Ambos llegan a las mismas tablas. La diferencia es:
 
 - **Admin:** se autentica con Supabase Auth normal. Sus `auth.uid()` aparece en `private.admin_users`. Las policies le dan `FOR ALL`.
-- **Cliente:** no tiene cuenta. La Edge Function (u otro canal) le emite un JWT con claim `client_id`. Las policies chequean `private.current_client_id()` para limitar todo a sus propias filas.
+- **Cliente:** no tiene cuenta. Parte de un link personal cuyo token lo canjea la Edge Function `authenticate-client-token` por un JWT (firma **ES256**, claim `client_id`, TTL 1 h). Las policies chequean `private.current_client_id()` para limitar todo a sus propias filas.
 
-Nota: la emisión del JWT del cliente (para acceder a `/menu/:token`) todavía no está implementada. Ver "Pendientes" abajo.
+### Detalles del JWT de cliente
+
+- Firma con la **signing key** del proyecto (`supabase gen signing-key --algorithm ES256`), **no** con `SUPABASE_JWT_SECRET` (que es HS256 y solo sirve para los tokens de Supabase Auth).
+- Secrets: `CLIENT_JWT_PRIVATE_KEY_JWK` + `CLIENT_JWT_KID`.
+- `verify_jwt = false` en `supabase/config.toml` para `authenticate-client-token`: la llamada llega sin el token de Supabase Auth (el propio link es la credencial).
+- El JWT vive en `sessionStorage` de la pestaña, guardado junto al `linkToken` que lo produjo (`todo-artesanal:client-session:v1`). Si el admin rota el link, la sesión vieja se descarta.
+- El provider lo renueva 60 s antes de expirar y `ClientMenuPage` usa un `sessionId` monotónico como clave de consulta para evitar parpadeos.
+- **Limitación conocida:** rotar el link invalida el token del enlace, pero no revoca un JWT ya emitido (válido hasta 1 h). Revocación inmediata requeriría una denylist en la Edge Function.
 
 ## Flujo de una petición de escritura
 
@@ -102,6 +111,9 @@ sequenceDiagram
 - El `applied_price` **no lo envía el frontend**. El trigger lo calcula.
 - La validación de negocio (semana activa, cliente esperado, etc.) es del trigger, no del servicio.
 - El servicio solo valida **forma** (UUID válido, enumeraciones, tipos).
+- `modality` debe coincidir con el `offerModality` de la opción elegida:
+  en producción el trigger la **rechaza** si no coincide; en local la
+  **normaliza** (ver `docs/decisiones/20260926-oferta-general-opcional.md`).
 
 ## Flujo de una operación atómica multi-tabla
 
@@ -143,12 +155,12 @@ sequenceDiagram
 
 **RPCs atómicos en el proyecto:**
 
-| RPC | Qué crea |
-|---|---|
-| `create_menu` | menus + menu_versions + menu_version_items |
-| `create_menu_version` | menu_versions + menu_version_items |
-| `create_week` | weeks + 5 week_days |
-| `update_week` | recrea week_days (con cascade sobre week_day_options) |
+| RPC                   | Qué crea                                              |
+| --------------------- | ----------------------------------------------------- |
+| `create_menu`         | menus + menu_versions + menu_version_items            |
+| `create_menu_version` | menu_versions + menu_version_items                    |
+| `create_week`         | weeks + 5 week_days                                   |
+| `update_week`         | recrea week_days (con cascade sobre week_day_options) |
 
 ## Funciones de dominio en PostgreSQL
 
@@ -163,6 +175,7 @@ flowchart LR
         A6[create_week]
         A7[update_week]
         A8[is_user_admin]
+        A9[validate_week_day_option_<br/>product_uniqueness]
     end
 
     subgraph Privadas
@@ -178,6 +191,7 @@ flowchart LR
         C5[prevent_*_version_mutation]
         C6[orders_no_cancellation]
         C7[cancellations_no_order]
+        C8[trg_validate_week_day_<br/>option_product_uniqueness]
     end
 
     A1 --> B1
@@ -188,13 +202,17 @@ flowchart LR
     A6 --> B1
     A7 --> B1
     A8 -->|consulta| B2
+    C8 -->|ejecuta| A9
 ```
 
 **Públicas:** invocables desde el frontend (admin) o desde la Edge Function.
 **Privadas:** solo invocables por RLS policies o por otras funciones.
 **Triggers:** corren automáticamente en INSERT/UPDATE/DELETE.
+**`validate_week_day_option_product_uniqueness`** es security definer pero no está pensada para invocarse desde el frontend: la llama su trigger (unicidad de producto por semana, con advisory lock).
 
-## Edge Function
+## Edge Functions
+
+### `rotate-client-token` (admin → link)
 
 ```mermaid
 flowchart TD
@@ -212,6 +230,23 @@ flowchart TD
 - Verifica admin contra `private.admin_users` vía RPC público.
 - Usa `service_role` internamente para escribir en `client_tokens` (que no tiene policy de cliente).
 - Devuelve el token en texto plano **una única vez**. Nunca se persiste en frontend.
+
+### `authenticate-client-token` (link → JWT)
+
+```mermaid
+flowchart TD
+    B[Cliente en /menu/:token] -->|POST /functions/v1/authenticate-client-token<br/>body: { token }| EF2[Edge Function<br/>verify_jwt = false]
+    EF2 -->|1. sha256(token)| DB2[(PostgreSQL)]
+    EF2 -->|2. valido y no vencido?| DB2
+    EF2 -->|3. firma ES256<br/>sub = client_id, ttl 1h| K[Signing key +<br/>CLIENT_JWT_PRIVATE_KEY_JWK / _KID]
+    EF2 -->|4. { accessToken, clientId, expiresIn }| B
+```
+
+**Seguridad:**
+
+- `verify_jwt = false`: la credencial es el token del link, no el de Supabase Auth.
+- Nunca recibe ni devuelve datos del cliente más allá de `clientId`.
+- El enlace de `client_tokens` se valida por hash (SHA-256), igual que en `rotate-client-token`.
 
 ## Diagrama de features
 
@@ -242,17 +277,33 @@ flowchart TB
 
     subgraph Consulta
         H1[history.service]
+        H2[historical-week-detail.service]
+        D1[dashboard.service]
+    end
+
+    subgraph "Sesión y acceso"
+        AU[auth.service]
+        CA[client-auth.service]
     end
 
     H1 -.->|lee| S1
     H1 -.->|lee| O1
     H1 -.->|lee| X1
     H1 -.->|lee| S4
+    H2 -.->|lee| O1
+    H2 -.->|lee| X1
+    D1 -.->|lee| S1
+    D1 -.->|lee| O1
+    D1 -.->|lee| X1
+    CA -->|Edge Function authenticate-client-token| CA1[(sessionStorage)]
     S3 -.->|lee| P2
     S3 -.->|lee| M2
     O1 -.->|escribe| S3
     X1 -.->|escribe| S2
 ```
+
+No todas las features tienen servicio: `dashboard` y `menu` orquestan
+servicios de otras features en lugar de tocar Supabase en forma directa.
 
 ## Patrón de carga de datos en la UI
 
@@ -267,9 +318,12 @@ El estado de carga/error de los listados se **deriva en el render**, no se sincr
   - El cleanup del efecto marca `cancelled` para descartar respuestas de consultas ya reemplazadas.
 - **Drawers**: el formulario se reinicia por **remonte**. La página dueña le pasa `key` (`"create"`, `edit:${id}` o `"closed"`) y el drawer inicializa `loading` en `useState(...)` según el modo.
 - **Estado dependiente de un id**: los días de una semana se guardan junto al `weekId` al que pertenecen (y la selección del día junto a la semana en la que se eligió) para derivarlos al renderizar, en lugar de limpiarlos dentro de un efecto.
+- **Sesión del cliente (`ClientSessionProvider`)**: el canje de link → JWT corre en un efecto que solo fija estado dentro de callbacks (`then/catch/finally`); un guard de intentos con `ref` evita canjes repetidos; la renovación 60 s antes de expirar es un timer en background que **no** cambia el estado visible (evita el parpadeo del spinner), y `reauthenticate()` es la vía para que un botón dispare una recarga por cambio de estado. La clave de la query del listado es el `sessionId` monótono, no el token.
 
 ## Pendientes de arquitectura
 
-- **Emisión de JWT de cliente:** falta el endpoint que valida el token personal del cliente y emite un JWT con claim `client_id`. Sin esto, `/menu/:token` no puede operar contra Supabase con las policies actuales.
-- **Realtime:** Supabase Realtime no está configurado. Cuando se agregue la UI, definir qué tablas se suscriben.
-- **Vistas o RPC de reportes:** varios servicios calculan agregados en cliente (dish-usage, order totals, historical weeks). Migrar a vistas o RPC si el volumen crece.
+- **UI de cliente en `/menu/:token`:** la sesión y los estados están; falta la UI de oferta y pedidos. Requiere que `getWeekOffer` / `listDayOptions` acepten un cliente Supabase propio, como `getActiveWeek`.
+- **Reconciliación de migraciones:** el historial local y remoto divergía (4 migraciones solo en local, 4 solo en remoto). **Decisión: gana el repo local.** Hecho el 2026-09-27: las 4 remotas se inspeccionaron (contenido equivalente a archivos locales) y se marcaron `reverted`; la consolidación `20260927000001` fija el estado final. **Pendiente:** correr `npx supabase db push --include-all`. Ver `docs/decisiones/20260927-local-fuente-de-verdad.md`.
+- **Realtime:** Supabase Realtime no está configurado. Cuando se agregue la UI de cliente, definir qué tablas se suscriben.
+- **Vistas o RPC de reportes:** varios servicios calculan agregados en cliente (dish-usage, order totals, historical weeks, dashboard). Migrar a vistas o RPC si el volumen crece.
+- **Revocación inmediata de JWT:** hoy un JWT emitido sigue válido hasta 1 h aunque el admin rote el link.

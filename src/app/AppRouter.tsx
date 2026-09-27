@@ -12,6 +12,8 @@ import { PlatosPage } from "../features/platos/PlatosPage";
 import { SemanasPage } from "../features/semanas/SemanasPage";
 import { PedidosPage } from "../features/pedidos/PedidosPage";
 import { CancelacionesPage } from "../features/cancelaciones/CancelacionesPage";
+import { ClientMenuPage } from "../features/menu/ClientMenuPage";
+import { ClientSessionProvider } from "../features/menu/ClientSessionProvider";
 import { resolveRoute } from "./routes";
 
 function subscribeToLocation(onChange: () => void) {
@@ -88,7 +90,11 @@ export function AppRouter() {
     case "admin":
       return <AdminRoute path={route.path} />;
     case "client-menu":
-      return <div>Menú del cliente</div>;
+      return (
+        <ClientSessionProvider linkToken={route.token}>
+          <ClientMenuPage />
+        </ClientSessionProvider>
+      );
     case "home":
       return <div>Todo Artesanal</div>;
     case "not-found":

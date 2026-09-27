@@ -30,7 +30,10 @@ lunes a viernes).
 
 - Es común a todos los clientes. No existe "la semana de Juan".
 - Los 5 días laborales son parte de la semana, no una entidad separada.
-- Cada día contiene opciones de oferta disponibles.
+- Cada día contiene opciones de oferta disponibles, y para poder
+  activarse **cada día debe tener una oferta General y una Opcional**.
+- Un mismo plato o menú **no puede repetirse en dos días** de la misma
+  semana (identidad lógica, no la versión concreta).
 
 ### Ciclo de vida
 
@@ -42,11 +45,11 @@ stateDiagram-v2
     closed --> [*]
 ```
 
-| Estado | Significado |
-|---|---|
-| `draft` | En configuración. No es oferta operativa. |
+| Estado   | Significado                                                      |
+| -------- | ---------------------------------------------------------------- |
+| `draft`  | En configuración. No es oferta operativa.                        |
 | `active` | Oferta disponible. Los clientes pueden pedir. Solo una a la vez. |
-| `closed` | Período terminado. Históricamente inmutable. Terminal. |
+| `closed` | Período terminado. Históricamente inmutable. Terminal.           |
 
 ### Población esperada
 
@@ -64,7 +67,7 @@ Representa la **configuración actual** de una persona.
 - Datos: nombre, teléfono, dirección.
 - Configuración: cuidado especial, observaciones, `active`, `allows_half_portion`.
 - Precios especiales: general, opcional, o por plato específico.
-- Acceso: un token personal para entrar al menú.
+- Acceso: un enlace personal (`/menu/:token`) sin cuenta de usuario.
 
 **El cliente NO cambia el historial.** Desactivarlo hoy no elimina ni
 altera pedidos de semanas pasadas.
@@ -80,7 +83,11 @@ cliente + semana + día + opción de oferta + modalidad + cantidad + precio apli
 ```
 
 - La opción de oferta puede ser un plato o un menú.
-- La modalidad es `general`, `opcional` o `media_vianda`.
+- La modalidad es `general`, `opcional` o `media_vianda`, pero **no se
+  elige libremente**: `general`/`opcional` la determina la opción de
+  oferta elegida (su `offer_modality`), y `media_vianda` es la única que
+  el cliente puede sumar (si `clients.allows_half_portion`). El trigger
+  rechaza —o normaliza en local— cualquier combinación inconsistente.
 - `applied_price` es unitario y **queda congelado** al crear el pedido.
 - `quantity` es la cantidad de unidades.
 
@@ -120,12 +127,12 @@ cambien los datos actuales?
 
 ### Ejemplos resueltos
 
-| Hecho | Cómo se preserva |
-|---|---|
-| Precio aplicado a un pedido | Snapshot en `orders.applied_price`. |
-| Contenido de un plato en una semana histórica | Referencia a `dish_versions` inmutable. |
-| Población esperada de una semana | Snapshot en `week_expected_clients`. |
-| Nombre de un plato al momento del pedido | Referencia a `dish_versions.name` (inmutable). |
+| Hecho                                         | Cómo se preserva                               |
+| --------------------------------------------- | ---------------------------------------------- |
+| Precio aplicado a un pedido                   | Snapshot en `orders.applied_price`.            |
+| Contenido de un plato en una semana histórica | Referencia a `dish_versions` inmutable.        |
+| Población esperada de una semana              | Snapshot en `week_expected_clients`.           |
+| Nombre de un plato al momento del pedido      | Referencia a `dish_versions.name` (inmutable). |
 
 ## Catálogo
 
@@ -159,15 +166,34 @@ Platos y menús tienen **identidad lógica** (`dishes` / `menus`) y
 **Consecuencia:** editar un plato hoy no cambia lo que se ofreció en
 semanas pasadas.
 
-## Modalidades de pedido
+## Modalidades
 
-Exclusivamente tres:
+Son **dos conceptos distintos** que comparten los mismos valores:
 
-| Modalidad | Significado |
-|---|---|
-| `general` | Vianda completa. Modalidad normal. |
-| `opcional` | Vianda completa con precio especial propio. |
-| `media_vianda` | 50% de una vianda completa. |
+### Modalidad de oferta (`week_day_options.offer_modality`)
+
+La define la **administración** al configurar cada día de la semana.
+Por día hay exactamente dos opciones de oferta:
+
+| Modalidad  | Significado                                                             |
+| ---------- | ----------------------------------------------------------------------- |
+| `general`  | Oferta estándar del día.                                                |
+| `opcional` | Oferta alternativa del día (con su propio precio especial por cliente). |
+
+Una semana solo se activa si **los 5 días tienen ambas**. No puede haber
+dos General ni dos Opcionales en el mismo día.
+
+### Modalidad del pedido (`orders.modality`)
+
+Se guarda en el pedido, pero **la determina la opción elegida**:
+
+| Modalidad      | Significado                                                         |
+| -------------- | ------------------------------------------------------------------- |
+| `general`      | Pedido de la oferta General del día. Vianda completa.               |
+| `opcional`     | Pedido de la oferta Opcional del día. Vianda completa.              |
+| `media_vianda` | 50% de una vianda completa. **Única que el cliente puede agregar.** |
+
+Ver `docs/decisiones/20260926-oferta-general-opcional.md`.
 
 ### Media vianda
 
@@ -176,18 +202,20 @@ Exclusivamente tres:
 - Se calcula como `precio normal / 2`, usando la rama `general`.
 - No tiene precio especial propio.
 - Requiere `clients.allows_half_portion = true`.
+- Usa la misma opción de oferta que la modalidad base: solo cambia la
+  cantidad servida, no qué se ofrece.
 
 ## Precios
 
 ### Tipos
 
-| Precio | Dónde vive | Cambia cuándo |
-|---|---|---|
-| Base | `dish_versions.price` / `menu_versions.price` | Nueva versión. |
-| Especial general | `client_prices[modality='general']` | Edición de config del cliente. |
-| Especial opcional | `client_prices[modality='opcional']` | Idem. |
-| Especial por plato | `client_product_prices[dish_id]` | Idem. |
-| Aplicado | `orders.applied_price` | **Nunca**. Congelado al crear. |
+| Precio             | Dónde vive                                    | Cambia cuándo                  |
+| ------------------ | --------------------------------------------- | ------------------------------ |
+| Base               | `dish_versions.price` / `menu_versions.price` | Nueva versión.                 |
+| Especial general   | `client_prices[modality='general']`           | Edición de config del cliente. |
+| Especial opcional  | `client_prices[modality='opcional']`          | Idem.                          |
+| Especial por plato | `client_product_prices[dish_id]`              | Idem.                          |
+| Aplicado           | `orders.applied_price`                        | **Nunca**. Congelado al crear. |
 
 ### Precedencia
 
@@ -223,12 +251,27 @@ en precios base o especiales **no lo modifican**.
 ## Tokens de acceso
 
 Cada cliente accede a su menú personal (`/menu/:token`) sin cuenta de
-usuario.
+usuario. Hay **dos credenciales en juego**:
 
-- El token se almacena **hasheado** (SHA-256). Nunca en texto plano.
+### Token del enlace (largo plazo)
+
+- Se almacena **hasheado** (SHA-256). Nunca en texto plano.
 - Al rotar, el token anterior queda **inmediatamente inválido**.
 - Como máximo un token vigente por cliente.
 - El historial de tokens se conserva (para auditoría).
+- Sirve para entrar: no da acceso directo a datos.
+
+### JWT de sesión (corto plazo)
+
+- La Edge Function `authenticate-client-token` canjea el token del
+  enlace por un **JWT con claim `client_id`**, firmado con ES256,
+  con 1 hora de vida.
+- Es lo que realmente habla con PostgREST: sus policies lo leen vía
+  `private.current_client_id()`.
+- Vive en `sessionStorage` de la pestaña y se renueva en segundo plano
+  60 s antes de expirar.
+- **Limitación:** rotar el enlace no revoca un JWT ya emitido (sigue
+  válido hasta 1 h). Máxima inmediatez exigiría una denylist.
 
 ## Seguridad
 

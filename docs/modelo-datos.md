@@ -7,7 +7,18 @@ Esquema PostgreSQL de Todo Artesanal.
   `week_day_options`, `week_expected_clients`, `client_prices`,
   `client_product_prices`, `client_tokens`, `orders`, `cancellations`.
 - **1 tabla en `private`**: `admin_users`.
-- **Fuente de verdad**: `supabase/migrations/20260923000001_schema.sql`.
+- **Fuente de verdad**: `supabase/migrations/` — `20260923000001_schema.sql`
+  (DDL base) **más todas las migraciones posteriores**, que son las que
+  terminaron de dar forma al esquema real (p. ej. `offer_modality` no está
+  en el archivo base).
+- **Historial reconciliado el 2026-09-27** (decisión: gana el repo
+  local): las 4 migraciones que solo existían en remoto fueron
+  inspeccionadas y resultaron equivalentes a archivos locales, así que
+  se marcaron `reverted`. **Pendiente:** correr el `db push` de las 5
+  migraciones locales restantes — ver
+  `docs/decisiones/20260927-local-fuente-de-verdad.md` y
+  `docs/estado-fases-1-5.md` → "Divergencia local ↔ remoto → decisión
+  tomada".
 
 ## Diagrama entidad-relación
 
@@ -49,14 +60,14 @@ erDiagram
 
 ### `dishes` (identidad lógica de platos)
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `category` | text null | Texto libre. Taxonomía no cerrada. |
-| `climate` | text null | CHECK: `frio` / `templado` / `calor` / null. |
-| `active` | boolean | Default `true`. Estado actual, no versionado. |
-| `created_at` | timestamptz | |
-| `updated_at` | timestamptz | |
+| Columna      | Tipo        | Notas                                         |
+| ------------ | ----------- | --------------------------------------------- |
+| `id`         | uuid PK     |                                               |
+| `category`   | text null   | Texto libre. Taxonomía no cerrada.            |
+| `climate`    | text null   | CHECK: `frio` / `templado` / `calor` / null.  |
+| `active`     | boolean     | Default `true`. Estado actual, no versionado. |
+| `created_at` | timestamptz |                                               |
+| `updated_at` | timestamptz |                                               |
 
 **Por qué sin `name`:** el nombre vive en `dish_versions`. Cada edición del
 nombre crea una versión nueva.
@@ -68,14 +79,14 @@ versionarlos. Por ahora no se requiere.
 
 ### `dish_versions` (versiones inmutables de platos)
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `dish_id` | uuid FK → `dishes` | Sin cascade. |
-| `version_number` | integer | > 0. |
-| `name` | text | |
-| `price` | numeric(10,2) | >= 0. |
-| `created_at` | timestamptz | |
+| Columna          | Tipo               | Notas        |
+| ---------------- | ------------------ | ------------ |
+| `id`             | uuid PK            |              |
+| `dish_id`        | uuid FK → `dishes` | Sin cascade. |
+| `version_number` | integer            | > 0.         |
+| `name`           | text               |              |
+| `price`          | numeric(10,2)      | >= 0.        |
+| `created_at`     | timestamptz        |              |
 
 **UNIQUE `(dish_id, version_number)`.**
 
@@ -94,13 +105,13 @@ trigger.
 
 ### `menu_version_items` (composición de una versión de menú)
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `menu_version_id` | uuid FK → `menu_versions` | **ON DELETE CASCADE**. |
-| `dish_version_id` | uuid FK → `dish_versions` | Sin cascade. |
-| `role` | text | CHECK: `main` / `side`. |
-| `created_at` | timestamptz | |
+| Columna           | Tipo                      | Notas                   |
+| ----------------- | ------------------------- | ----------------------- |
+| `id`              | uuid PK                   |                         |
+| `menu_version_id` | uuid FK → `menu_versions` | **ON DELETE CASCADE**.  |
+| `dish_version_id` | uuid FK → `dish_versions` | Sin cascade.            |
+| `role`            | text                      | CHECK: `main` / `side`. |
+| `created_at`      | timestamptz               |                         |
 
 **UNIQUE `(menu_version_id, dish_version_id)`**: no se repite el mismo
 plato dentro de un menú.
@@ -115,14 +126,14 @@ garantiza ≥1 main al COMMIT de la transacción.
 
 ### `weeks`
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `start_date` | date | |
-| `end_date` | date | |
-| `status` | text | CHECK: `draft` / `active` / `closed`. |
-| `created_at` | timestamptz | |
-| `updated_at` | timestamptz | |
+| Columna      | Tipo        | Notas                                 |
+| ------------ | ----------- | ------------------------------------- |
+| `id`         | uuid PK     |                                       |
+| `start_date` | date        |                                       |
+| `end_date`   | date        |                                       |
+| `status`     | text        | CHECK: `draft` / `active` / `closed`. |
+| `created_at` | timestamptz |                                       |
+| `updated_at` | timestamptz |                                       |
 
 **EXCLUDE gist sobre `daterange(start_date, end_date, '[]')`:** no se
 permiten semanas con rangos solapados.
@@ -135,13 +146,13 @@ de las funciones `activate_week` / `close_week`.
 
 ### `week_days`
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `week_id` | uuid FK → `weeks` | **ON DELETE CASCADE**. |
-| `day_of_week` | smallint | CHECK: 1..5 (lunes a viernes). |
-| `date` | date | Fecha concreta del día. |
-| `created_at` | timestamptz | |
+| Columna       | Tipo              | Notas                          |
+| ------------- | ----------------- | ------------------------------ |
+| `id`          | uuid PK           |                                |
+| `week_id`     | uuid FK → `weeks` | **ON DELETE CASCADE**.         |
+| `day_of_week` | smallint          | CHECK: 1..5 (lunes a viernes). |
+| `date`        | date              | Fecha concreta del día.        |
+| `created_at`  | timestamptz       |                                |
 
 **CHECK `extract(isodow from date) = day_of_week`:** la fecha debe
 corresponder al día de la semana.
@@ -150,30 +161,56 @@ corresponder al día de la semana.
 
 ### `week_day_options` (opciones de oferta de un día)
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `week_day_id` | uuid FK → `week_days` | **ON DELETE CASCADE**. |
-| `option_type` | text | CHECK: `dish` / `menu`. |
-| `dish_version_id` | uuid FK → `dish_versions` | Nullable. |
-| `menu_version_id` | uuid FK → `menu_versions` | Nullable. |
-| `created_at` | timestamptz | |
+| Columna           | Tipo                      | Notas                                    |
+| ----------------- | ------------------------- | ---------------------------------------- |
+| `id`              | uuid PK                   |                                          |
+| `week_day_id`     | uuid FK → `week_days`     | **ON DELETE CASCADE**.                   |
+| `option_type`     | text                      | CHECK: `dish` / `menu`.                  |
+| `dish_version_id` | uuid FK → `dish_versions` | Nullable.                                |
+| `menu_version_id` | uuid FK → `menu_versions` | Nullable.                                |
+| `offer_modality`  | text                      | CHECK: `general` / `opcional`. NOT NULL. |
+| `created_at`      | timestamptz               |                                          |
 
 **CHECK XOR:** `option_type='dish'` implica `dish_version_id NOT NULL` y
 `menu_version_id NULL`; `option_type='menu'` al revés.
 
+**`offer_modality`:** es la **modalidad de oferta** que le toca a esa
+opción, definida por administración. No la elige el cliente: al crear un
+pedido, el trigger `private.validate_order` garantiza que
+`orders.modality` coincida con este valor **normalizando**
+(`new.modality := offer_modality`). `media_vianda` se conserva tal cual.
+Ver `docs/decisiones/20260926-oferta-general-opcional.md`.
+
+**UNIQUE `(week_day_id, offer_modality)`**
+(`week_day_options_week_day_offer_modality_unique`): cada día tiene
+exactamente una oferta General y una Opcional.
+
+**Unicidad de producto por semana:** no hay un índice UNIQUE (la
+identidad se toma sobre columnas ajenas: `dish_versions.dish_id` /
+`menu_versions.menu_id`), sino el trigger
+`trg_validate_week_day_option_product_uniqueness` sobre `week_day_options`
+(INSERT/UPDATE), con `pg_advisory_xact_lock` por semana para cerrar la
+ventana de carrera.
+
 **Índices:** sobre `week_day_id`, `dish_version_id`, `menu_version_id`.
 
-**Trigger `week_day_options_order_freeze`:** rechaza UPDATE/DELETE si la
-opción ya tiene pedidos asociados.
+**Triggers:**
+
+- `week_day_options_order_freeze`: rechaza UPDATE/DELETE si la opción ya
+  tiene pedidos asociados.
+- `trg_validate_week_day_option_product_uniqueness` →
+  `public.validate_week_day_option_product_uniqueness()` (security
+  definer): un mismo plato o menú lógico no puede estar en dos días de
+  la misma semana.
+  ⚠️ Vive en `20260926000001`, que **no está aplicada en remoto**.
 
 ### `week_expected_clients` (población congelada)
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `week_id` | uuid FK → `weeks` | **ON DELETE CASCADE**. |
-| `client_id` | uuid FK → `clients` | Sin cascade. |
-| `created_at` | timestamptz | |
+| Columna      | Tipo                | Notas                  |
+| ------------ | ------------------- | ---------------------- |
+| `week_id`    | uuid FK → `weeks`   | **ON DELETE CASCADE**. |
+| `client_id`  | uuid FK → `clients` | Sin cascade.           |
+| `created_at` | timestamptz         |                        |
 
 **PK compuesta** `(week_id, client_id)`.
 
@@ -186,14 +223,14 @@ opción ya tiene pedidos asociados.
 
 ### `client_prices` (precios general y opcional del cliente)
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `client_id` | uuid FK → `clients` | **ON DELETE CASCADE**. |
-| `modality` | text | CHECK: `general` / `opcional`. |
-| `price` | numeric(10,2) | >= 0. |
-| `created_at` | timestamptz | |
-| `updated_at` | timestamptz | |
+| Columna      | Tipo                | Notas                          |
+| ------------ | ------------------- | ------------------------------ |
+| `id`         | uuid PK             |                                |
+| `client_id`  | uuid FK → `clients` | **ON DELETE CASCADE**.         |
+| `modality`   | text                | CHECK: `general` / `opcional`. |
+| `price`      | numeric(10,2)       | >= 0.                          |
+| `created_at` | timestamptz         |                                |
+| `updated_at` | timestamptz         |                                |
 
 **UNIQUE `(client_id, modality)`.**
 
@@ -202,14 +239,14 @@ se calcula como 50% del precio normal.
 
 ### `client_product_prices` (precios especiales por plato)
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `client_id` | uuid FK → `clients` | **ON DELETE CASCADE**. |
-| `dish_id` | uuid FK → `dishes` | **ON DELETE CASCADE**. |
-| `price` | numeric(10,2) | >= 0. |
-| `created_at` | timestamptz | |
-| `updated_at` | timestamptz | |
+| Columna      | Tipo                | Notas                  |
+| ------------ | ------------------- | ---------------------- |
+| `id`         | uuid PK             |                        |
+| `client_id`  | uuid FK → `clients` | **ON DELETE CASCADE**. |
+| `dish_id`    | uuid FK → `dishes`  | **ON DELETE CASCADE**. |
+| `price`      | numeric(10,2)       | >= 0.                  |
+| `created_at` | timestamptz         |                        |
+| `updated_at` | timestamptz         |                        |
 
 **UNIQUE `(client_id, dish_id)`.**
 
@@ -223,13 +260,13 @@ concepto, no a una versión específica.
 
 ### `client_tokens`
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `client_id` | uuid FK → `clients` | **ON DELETE CASCADE**. |
-| `token_hash` | text | SHA-256 en hex. Nunca plaintext. |
-| `created_at` | timestamptz | |
-| `invalidated_at` | timestamptz null | null = vigente. |
+| Columna                                                           | Tipo                | Notas                            |
+| ----------------------------------------------------------------- | ------------------- | -------------------------------- |
+| `id`                                                              | uuid PK             |                                  |
+| `client_id`                                                       | uuid FK → `clients` | **ON DELETE CASCADE**.           |
+| `token_hash`                                                      | text                | SHA-256 en hex. Nunca plaintext. |
+| `created_at`                                                      | timestamptz         |                                  |
+| `invalidated_at`                                                  | timestamptz null    | null = vigente.                  |
 | `CHECK (invalidated_at is null or invalidated_at >= created_at)`. |
 
 **UNIQUE `(token_hash)`.**
@@ -244,17 +281,17 @@ plaintext solo lo recibe el admin en la respuesta, y se descarta.
 
 ### `orders` (pedidos)
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `client_id` | uuid FK → `clients` | Sin cascade. |
-| `week_day_option_id` | uuid FK → `week_day_options` | Sin cascade. |
-| `modality` | text | CHECK: `general` / `opcional` / `media_vianda`. |
-| `quantity` | integer | Default 1. CHECK > 0. |
-| `applied_price` | numeric(10,2) | CHECK >= 0. |
-| `notes` | text null | Nota específica del pedido. |
-| `created_at` | timestamptz | |
-| `updated_at` | timestamptz | |
+| Columna              | Tipo                         | Notas                                           |
+| -------------------- | ---------------------------- | ----------------------------------------------- |
+| `id`                 | uuid PK                      |                                                 |
+| `client_id`          | uuid FK → `clients`          | Sin cascade.                                    |
+| `week_day_option_id` | uuid FK → `week_day_options` | Sin cascade.                                    |
+| `modality`           | text                         | CHECK: `general` / `opcional` / `media_vianda`. |
+| `quantity`           | integer                      | Default 1. CHECK > 0.                           |
+| `applied_price`      | numeric(10,2)                | CHECK >= 0.                                     |
+| `notes`              | text null                    | Nota específica del pedido.                     |
+| `created_at`         | timestamptz                  |                                                 |
+| `updated_at`         | timestamptz                  |                                                 |
 
 **UNIQUE `(client_id, week_day_option_id, modality)`.**
 
@@ -266,22 +303,28 @@ preserva historial. Borrar un cliente con pedidos falla con FK violation.
 
 **Triggers:**
 
-- `orders_validate_insert_update`: valida semana activa + cliente
-  esperado + INSERT congela `applied_price` + UPDATE rechaza cambios
-  de campos inmutables.
+- `orders_validate_insert_update` → función `private.validate_order()`:
+  1. **garantiza la consistencia de `modality`**: si es `general` u
+     `opcional` la **normaliza** al valor de
+     `week_day_options.offer_modality` de la opción elegida
+     (`media_vianda` se conserva). Igual en local y en remoto;
+  2. valida semana activa + cliente esperado;
+  3. en INSERT congela `applied_price`;
+  4. en UPDATE rechaza cambios de campos inmutables
+     (`client_id`, `week_day_option_id`, `modality`, `applied_price`).
 - `orders_closed_protection`: rechaza mutaciones si la semana está `closed`.
 - `orders_no_cancellation`: rechaza el INSERT si hay cancelación del
   mismo cliente y día.
 
 ### `cancellations`
 
-| Columna | Tipo | Notas |
-|---|---|---|
-| `id` | uuid PK | |
-| `client_id` | uuid FK → `clients` | Sin cascade. |
+| Columna       | Tipo                  | Notas        |
+| ------------- | --------------------- | ------------ |
+| `id`          | uuid PK               |              |
+| `client_id`   | uuid FK → `clients`   | Sin cascade. |
 | `week_day_id` | uuid FK → `week_days` | Sin cascade. |
-| `created_at` | timestamptz | |
-| `updated_at` | timestamptz | |
+| `created_at`  | timestamptz           |              |
+| `updated_at`  | timestamptz           |              |
 
 **UNIQUE `(client_id, week_day_id)`:** una cancelación por cliente/día.
 
@@ -298,8 +341,8 @@ preserva historial. Borrar un cliente con pedidos falla con FK violation.
 
 ### `private.admin_users`
 
-| Columna | Tipo | Notas |
-|---|---|---|
+| Columna   | Tipo    | Notas                                    |
+| --------- | ------- | ---------------------------------------- |
 | `user_id` | uuid PK | FK → `auth.users(id) ON DELETE CASCADE`. |
 
 **Cómo se llena:** INSERT manual (ver `04_admin_setup.sql`). No tiene
@@ -313,20 +356,20 @@ UI de gestión.
 
 Además de los PK, UNIQUE y partial indexes:
 
-| Tabla | Índice |
-|---|---|
-| `dish_versions` | `(dish_id)` |
-| `menu_versions` | `(menu_id)` |
-| `menu_version_items` | `(menu_version_id)` |
-| `week_expected_clients` | `(client_id)` |
-| `client_tokens` | `(client_id)` |
-| `week_day_options` | `(week_day_id)` |
-| `week_day_options` | `(dish_version_id)` |
-| `week_day_options` | `(menu_version_id)` |
-| `orders` | `(client_id)` |
-| `orders` | `(week_day_option_id)` |
-| `cancellations` | `(client_id)` |
-| `cancellations` | `(week_day_id)` |
+| Tabla                   | Índice                 |
+| ----------------------- | ---------------------- |
+| `dish_versions`         | `(dish_id)`            |
+| `menu_versions`         | `(menu_id)`            |
+| `menu_version_items`    | `(menu_version_id)`    |
+| `week_expected_clients` | `(client_id)`          |
+| `client_tokens`         | `(client_id)`          |
+| `week_day_options`      | `(week_day_id)`        |
+| `week_day_options`      | `(dish_version_id)`    |
+| `week_day_options`      | `(menu_version_id)`    |
+| `orders`                | `(client_id)`          |
+| `orders`                | `(week_day_option_id)` |
+| `cancellations`         | `(client_id)`          |
+| `cancellations`         | `(week_day_id)`        |
 
 El índice `(week_id)` en `week_days` está cubierto por el UNIQUE
 `(week_id, day_of_week)`.
@@ -356,23 +399,54 @@ Igual que `orders`. El historial se preserva.
 
 ### Referencias vs snapshots
 
-| Dato | Cómo |
-|---|---|
-| Contenido de un plato en una versión | Referencia inmutable. |
-| Precio aplicado a un pedido | Snapshot (`applied_price`). |
-| Población esperada de una semana | Snapshot (`week_expected_clients`). |
+| Dato                                     | Cómo                                  |
+| ---------------------------------------- | ------------------------------------- |
+| Contenido de un plato en una versión     | Referencia inmutable.                 |
+| Precio aplicado a un pedido              | Snapshot (`applied_price`).           |
+| Población esperada de una semana         | Snapshot (`week_expected_clients`).   |
 | Estado del cliente al activar una semana | Implícito en `week_expected_clients`. |
 
 ## Migraciones
 
-| Archivo | Contenido |
-|---|---|
-| `20260923000001_schema.sql` | DDL completo (15 tablas + `private.admin_users`) |
-| `20260923000002_functions.sql` | `calculate_order_price`, `activate_week`, `close_week` |
-| `20260923000003_triggers.sql` | Inmutabilidad, validaciones, protección de semanas `closed` |
-| `20260923000004_rls.sql` | RLS, policies, grants |
-| `20260923000005_admin_setup.sql` | INSERT del primer admin (comentado) |
-| `20260924000001_menu_rpc.sql` | `create_menu`, `create_menu_version` |
-| `20260924000002_week_rpc.sql` | `create_week`, `update_week` |
-| `20260924000003_edge_function_grants.sql` | Grants de `service_role` sobre `private` |
-| `20260924000004_admin_check_rpc.sql` | `is_user_admin` (RPC público) |
+Archivo local → qué aporta. La **fila `Estado`** es el resultado de
+`npx supabase migration list` (2026-09-27, después de reconciliar el
+historial): ✅ aplicada en remoto, ⚠️ solo local en el historial.
+
+| Archivo                                                  | Contenido                                                                                                                                                                                                             | Estado |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `20260923000001_schema.sql`                              | DDL completo (15 tablas + `private.admin_users`)                                                                                                                                                                      | ✅     |
+| `20260923000002_functions.sql`                           | `calculate_order_price`, `activate_week`, `close_week`                                                                                                                                                                | ✅     |
+| `20260923000003_triggers.sql`                            | Inmutabilidad, validaciones, protección de semanas `closed`                                                                                                                                                           | ✅     |
+| `20260923000004_rls.sql`                                 | RLS, policies, grants                                                                                                                                                                                                 | ✅     |
+| `20260923000005_admin_setup.sql`                         | INSERT del primer admin (comentado)                                                                                                                                                                                   | ✅     |
+| `20260924000001_menu_rpc.sql`                            | `create_menu`, `create_menu_version`                                                                                                                                                                                  | ✅     |
+| `20260924000002_week_rpc.sql`                            | `create_week`, `update_week`                                                                                                                                                                                          | ✅     |
+| `20260924000003_edge_function_grants.sql`                | Grants de `service_role` sobre `private`                                                                                                                                                                              | ✅     |
+| `20260924000004_admin_check_rpc.sql`                     | `is_user_admin` (RPC público)                                                                                                                                                                                         | ✅     |
+| `20260924000005_grant_admin_check_rpc_authenticated.sql` | `grant execute is_user_admin to authenticated` (efecto ya en prod vía `20260924131042`)                                                                                                                               | ⚠️     |
+| `20260924000006_restrict_admin_check_rpc_anon.sql`       | `revoke execute is_user_admin from anon` (efecto ya en prod vía `20260924131127`)                                                                                                                                     | ⚠️     |
+| `20260926000001_week_option_unique_product_per_week.sql` | Trigger + `activate_week`: producto único por semana (efecto ya en prod vía `20260926161458`)                                                                                                                         | ⚠️     |
+| `20260926165141_add_week_offer_modality.sql`             | `week_day_options.offer_modality`, UNIQUE por día, `activate_week` con ambas modalidades, `validate_order` en modo rechazo (reemplazada 5 min después)                                                                | ✅     |
+| `20260926170000_normalize_order_offer_modality.sql`      | `private.validate_order` en modo **normalización** de `modality` (mismo contenido que `20260926165602`, vigente en remoto)                                                                                            | ⚠️     |
+| `20260927000001_reconcile_local_source_of_truth.sql`     | **Consolidación**: `activate_week` fusionada (General/Opcional + producto único), `validate_order` normalizadora, trigger de unicidad, grants de `is_user_admin`, objetos de `offer_modality`, limpieza del duplicado | ⚠️     |
+
+**Migraciones del dashboard, inspeccionadas y reparadas (2026-09-27):**
+`20260924131042`, `20260924131127`, `20260926161458`, `20260926165602`
+— su contenido es **equivalente** a los archivos `20260924000005`,
+`20260924000006`, `20260926000001`, `20260926170000`; se marcaron
+`reverted` y ya no aparecen en `migration list`.
+
+✅ = aplicada en remoto · ⚠️ = solo local en el historial (su efecto ya
+está en producción salvo para `20260927000001`, el único aporte nuevo
+del push).
+
+**Push pendiente** (con `--include-all`, obligatorio porque tres
+archivos son anteriores al último remoto):
+
+```bash
+npx supabase db push --dry-run --include-all   # 5 archivos
+npx supabase db push --include-all
+```
+
+Procedimiento y verificación (dump de esquema remoto vs. local:
+estructura idéntica) en `docs/decisiones/20260927-local-fuente-de-verdad.md`.
