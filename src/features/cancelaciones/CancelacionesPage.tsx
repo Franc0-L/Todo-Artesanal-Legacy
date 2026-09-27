@@ -101,11 +101,7 @@ export function CancelacionesPage() {
 
   function handleWeekChange(value: string) { setPage(1); setWeekId(value); }
   function handleDayChange(value: string) { setPage(1); setWeekDayId(value); }
-
-  function handleCreated() {
-    setCreateOpen(false);
-    setPage(1);
-  }
+  function handleCreated() { setCreateOpen(false); if (page !== 1) setPage(1); else void loadCancellations(); }
 
   async function handleDelete(cancellation: Cancellation) {
     const proceed = await confirm({
@@ -119,7 +115,8 @@ export function CancelacionesPage() {
     setError(null);
     try {
       await deleteCancellation(cancellation.id);
-      void loadCancellations();
+      if (items.length === 1 && page > 1) setPage((current) => current - 1);
+      else void loadCancellations();
     } catch (deleteError: unknown) {
       setError(deleteError instanceof Error ? deleteError.message : "No se pudo eliminar la cancelación (¿la semana está cerrada?).");
     } finally {
