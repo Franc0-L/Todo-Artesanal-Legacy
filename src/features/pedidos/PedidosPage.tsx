@@ -27,8 +27,13 @@ export function PedidosPage() {
   const [weeks, setWeeks] = useState<WeekListItem[]>([]);
   const [weekId, setWeekId] = useState("");
   const [activeWeekId, setActiveWeekId] = useState<string | null>(null);
-  const [days, setDays] = useState<WeekDay[]>([]);
-  const [weekDayId, setWeekDayId] = useState("");
+  // Los días se guardan junto a la semana a la que pertenecen, y la selección
+  // del día junto a la semana en la que se eligió: así el estado válido se
+  // deriva al renderizar al cambiar de semana, sin limpiarlo dentro de un efecto.
+  const [weekDays, setWeekDays] = useState<{ weekId: string; days: WeekDay[] }>({ weekId: "", days: [] });
+  const [daySelection, setDaySelection] = useState<{ weekId: string; weekDayId: string }>({ weekId: "", weekDayId: "" });
+  const days = weekDays.weekId === weekId ? weekDays.days : [];
+  const weekDayId = daySelection.weekId === weekId ? daySelection.weekDayId : "";
   const [modalityFilter, setModalityFilter] = useState<ModalityFilter>("all");
   const [items, setItems] = useState<OrderDetail[]>([]);
   const [total, setTotal] = useState(0);
@@ -41,9 +46,10 @@ export function PedidosPage() {
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = useRef(0);
 
+  // `weeksLoading` arranca en `true` (estado inicial) y el efecto solo lo baja
+  // al terminar la consulta: no hace falta volver a marcarlo al inicio.
   useEffect(() => {
     let cancelled = false;
-    setWeeksLoading(true);
     void Promise.all([listWeeks({ pageSize: 100 }), getActiveWeek()])
       .then(([weeksResult, active]) => {
         if (cancelled) return;
@@ -61,21 +67,14 @@ export function PedidosPage() {
   }, []);
 
   useEffect(() => {
-    if (!weekId) {
-      setDays([]);
-      setWeekDayId("");
-      return;
-    }
+    if (!weekId) return;
     let cancelled = false;
     void listWeekDays(weekId)
       .then((result) => {
-        if (!cancelled) {
-          setDays(result);
-          setWeekDayId("");
-        }
+        if (!cancelled) setWeekDays({ weekId, days: result });
       })
       .catch(() => {
-        if (!cancelled) setDays([]);
+        if (!cancelled) setWeekDays({ weekId, days: [] });
       });
     return () => { cancelled = true; };
   }, [weekId]);
@@ -112,7 +111,12 @@ export function PedidosPage() {
     }
   }, [weekId, weekDayId, modalityFilter, page]);
 
-  useEffect(() => { void loadOrders(); }, [loadOrders]);
+  useEffect(() => {
+    function run() {
+      void loadOrders();
+    }
+    run();
+  }, [loadOrders]);
 
   const handleCloseDrawer = useCallback(() => {
     setSelectedOrderId(null);
@@ -139,11 +143,14 @@ export function PedidosPage() {
     }
   }, [items.length, loadOrders, page]);
 
-  function handleWeekChange(value: string) { setPage(1); setWeekId(value); }
-  function handleDayChange(value: string) { setPage(1); setWeekDayId(value); }
+  function handleWeekChange(value: string) { setPage(1); setWeekId(value); setDaySelection({ weekId: value, weekDayId: "" }); }
+  function handleDayChange(value: string) { setPage(1); setDaySelection({ weekId, weekDayId: value }); }
   function handleModalityChange(value: ModalityFilter) { setPage(1); setModalityFilter(value); }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  // Remonta el drawer al cambiar de pedido o de modo: el formulario arranca
+  // limpio (estado inicial correcto) sin limpiar estado dentro de un efecto.
+  const drawerKey = createDrawerOpen ? "create" : `edit:${selectedOrderId ?? "closed"}`;
 
   return (
     <section className="pedidos-page" aria-labelledby="pedidos-title">
@@ -177,7 +184,7 @@ export function PedidosPage() {
 
       {!loading && total > 0 && <nav className="pedidos-pagination" aria-label="Paginación de pedidos"><span>Página {page} de {totalPages} · {total} pedido{total === 1 ? "" : "s"}</span><div><button type="button" disabled={page === 1} onClick={() => setPage((current) => current - 1)}>Anterior</button><button type="button" disabled={page >= totalPages} onClick={() => setPage((current) => current + 1)}>Siguiente</button></div></nav>}
 
-      <OrderDrawer mode={createDrawerOpen ? "create" : "edit"} orderId={createDrawerOpen ? null : selectedOrderId} onClose={handleCloseDrawer} onCreated={handleOrderCreated} onSaved={handleOrderSaved} onDeleted={handleOrderDeleted} />
+      <OrderDrawer key={drawerKey} mode={createDrawerOpen ? "create" : "edit"} orderId={createDrawerOpen ? null : selectedOrderId} onClose={handleCloseDrawer} onCreated={handleOrderCreated} onSaved={handleOrderSaved} onDeleted={handleOrderDeleted} />
     </section>
   );
 }

@@ -56,6 +56,8 @@ export function OrderDrawer({
 }: OrderDrawerProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const isCreateMode = mode === "create";
+  // El drawer está abierto cuando se crea un pedido o hay uno seleccionado.
+  const open = isCreateMode || orderId !== null;
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
@@ -71,7 +73,9 @@ export function OrderDrawer({
   const [modality, setModality] = useState<Modality>("general");
   const [createQuantity, setCreateQuantity] = useState("1");
   const [createNotes, setCreateNotes] = useState("");
-  const [loading, setLoading] = useState(false);
+  // Arranca cargando si el drawer se abre para crear o para ver un pedido: el
+  // estado inicial ya es correcto porque el componente se remonta por `key`.
+  const [loading, setLoading] = useState(open);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -81,29 +85,10 @@ export function OrderDrawer({
     ? selectedOptionId !== "" || selectedClientId !== ""
     : quantity !== baselineQuantity || notes !== baselineNotes;
 
-  function resetState() {
-    setOrder(null);
-    setQuantity("1");
-    setNotes("");
-    setBaselineQuantity("1");
-    setBaselineNotes("");
-    setActiveWeek(null);
-    setOffer(null);
-    setExpectedClients([]);
-    setSelectedDayId("");
-    setSelectedOptionId("");
-    setClientQuery("");
-    setSelectedClientId("");
-    setModality("general");
-    setCreateQuantity("1");
-    setCreateNotes("");
-    setError(null);
-  }
-
+  // El estado del formulario se reinicia por remonte (ver `key` en
+  // PedidosPage): el drawer nunca pinta datos del pedido anterior.
   useEffect(() => {
     let cancelled = false;
-    resetState();
-    setLoading(true);
 
     if (isCreateMode) {
       void getActiveWeek()
@@ -144,8 +129,6 @@ export function OrderDrawer({
         .finally(() => {
           if (!cancelled) setLoading(false);
         });
-    } else {
-      setLoading(false);
     }
 
     return () => {
@@ -297,7 +280,6 @@ export function OrderDrawer({
     }
   }
 
-  const open = isCreateMode || orderId !== null;
   if (!open) return null;
 
   return (
