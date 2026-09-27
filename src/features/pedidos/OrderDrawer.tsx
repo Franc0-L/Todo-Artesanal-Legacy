@@ -14,11 +14,7 @@ import {
 import { getActiveWeek } from "../semanas/services/weeks.service";
 import { getWeekOffer } from "../semanas/services/week-offer.service";
 import { getExpectedClients } from "../semanas/services/week-expected-clients.service";
-import {
-  formatCurrency,
-  formatDate,
-  formatDateRange,
-} from "../../lib/formatters";
+import { formatCurrency, formatDate, formatDateRange } from "../../lib/formatters";
 import { useConfirm } from "../../components/ui/useConfirm";
 import type { Modality } from "../../types/domain";
 import type { CreateOrderInput, UpdateOrderInput } from "./types/order";
@@ -60,20 +56,14 @@ export function OrderDrawer({
 }: OrderDrawerProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const isCreateMode = mode === "create";
-
-  // Edición.
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [quantity, setQuantity] = useState("1");
   const [notes, setNotes] = useState("");
   const [baselineQuantity, setBaselineQuantity] = useState("1");
   const [baselineNotes, setBaselineNotes] = useState("");
-
-  // Creación.
   const [activeWeek, setActiveWeek] = useState<Week | null>(null);
   const [offer, setOffer] = useState<WeekOffer | null>(null);
-  const [expectedClients, setExpectedClients] = useState<WeekExpectedClient[]>(
-    [],
-  );
+  const [expectedClients, setExpectedClients] = useState<WeekExpectedClient[]>([]);
   const [selectedDayId, setSelectedDayId] = useState("");
   const [selectedOptionId, setSelectedOptionId] = useState("");
   const [clientQuery, setClientQuery] = useState("");
@@ -81,12 +71,10 @@ export function OrderDrawer({
   const [modality, setModality] = useState<Modality>("general");
   const [createQuantity, setCreateQuantity] = useState("1");
   const [createNotes, setCreateNotes] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   const { confirm, confirmDialog } = useConfirm();
 
   const dirty = isCreateMode
@@ -113,94 +101,63 @@ export function OrderDrawer({
   }
 
   useEffect(() => {
-    function run() {
-      if (isCreateMode) {
-      let cancelled = false;
-      setLoading(true);
-      resetState();
+    let cancelled = false;
+    resetState();
+    setLoading(true);
 
+    if (isCreateMode) {
       void getActiveWeek()
         .then((week) => {
           if (cancelled) return null;
           setActiveWeek(week);
           if (!week) return null;
-          return Promise.all([
-            getWeekOffer(week.id),
-            getExpectedClients(week.id),
-          ]);
+          return Promise.all([getWeekOffer(week.id), getExpectedClients(week.id)]);
         })
         .then((result) => {
           if (cancelled || !result) return;
-          const [offerResult, expectedResult] = result;
-          setOffer(offerResult);
-          setExpectedClients(expectedResult.items);
+          setOffer(result[0]);
+          setExpectedClients(result[1].items);
         })
         .catch((loadError: unknown) => {
           if (!cancelled) {
-            setError(
-              loadError instanceof Error
-                ? loadError.message
-                : "No se pudo cargar la semana activa.",
-            );
+            setError(loadError instanceof Error ? loadError.message : "No se pudo cargar la semana activa.");
           }
         })
         .finally(() => {
           if (!cancelled) setLoading(false);
         });
-
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    if (!orderId) {
-      resetState();
+    } else if (orderId) {
+      void getOrder(orderId)
+        .then((result) => {
+          if (cancelled) return;
+          setOrder(result);
+          setQuantity(String(result.quantity));
+          setNotes(result.notes ?? "");
+          setBaselineQuantity(String(result.quantity));
+          setBaselineNotes(result.notes ?? "");
+        })
+        .catch((loadError: unknown) => {
+          if (!cancelled) {
+            setError(loadError instanceof Error ? loadError.message : "No se pudo cargar el pedido.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    } else {
       setLoading(false);
-      return;
     }
 
-    let cancelled = false;
-    setLoading(true);
-    resetState();
-
-    void getOrder(orderId)
-      .then((result) => {
-        if (cancelled) return;
-        setOrder(result);
-        setQuantity(String(result.quantity));
-        setNotes(result.notes ?? "");
-        setBaselineQuantity(String(result.quantity));
-        setBaselineNotes(result.notes ?? "");
-      })
-      .catch((loadError: unknown) => {
-        if (!cancelled) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "No se pudo cargar el pedido.",
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-      return () => {
-        cancelled = true;
-      };
-    }
-    return run();
+    return () => {
+      cancelled = true;
+    };
   }, [orderId, isCreateMode]);
 
   useEffect(() => {
-    if (!isCreateMode && !orderId) {
-      return;
-    }
-
+    if (!isCreateMode && !orderId) return;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     closeButtonRef.current?.focus();
-
     return () => {
       document.body.style.overflow = previousOverflow;
     };
@@ -210,42 +167,29 @@ export function OrderDrawer({
     if (dirty) {
       const proceed = await confirm({
         title: "Cambios sin guardar",
-        message:
-          "Hay cambios sin guardar en este pedido. Si cerrás ahora, se van a perder.",
+        message: "Hay cambios sin guardar en este pedido. Si cerrás ahora, se van a perder.",
         confirmLabel: "Cerrar sin guardar",
         cancelLabel: "Seguir editando",
         tone: "danger",
       });
-
-      if (!proceed) {
-        return;
-      }
+      if (!proceed) return;
     }
-
     onClose();
   }, [confirm, dirty, onClose]);
 
   useEffect(() => {
-    if (!isCreateMode && !orderId) {
-      return;
-    }
-
+    if (!isCreateMode && !orderId) return;
     function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") {
-        return;
-      }
-
-      void requestClose();
+      if (event.key === "Escape") void requestClose();
     }
-
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [orderId, isCreateMode, requestClose]);
 
-  const selectedDay =
-    offer?.days.find((day) => day.weekDay.id === selectedDayId) ?? null;
+  const selectedDay = offer?.days.find((day) => day.weekDay.id === selectedDayId) ?? null;
   const dayOptions: WeekDayOption[] = selectedDay?.options ?? [];
-
+  const selectedOption = dayOptions.find((option) => option.id === selectedOptionId) ?? null;
+  const offerModality = selectedOption?.offerModality ?? null;
   const filteredClients = expectedClients.filter((entry) => {
     const query = clientQuery.trim().toLowerCase();
     if (!query) return true;
@@ -255,34 +199,38 @@ export function OrderDrawer({
     );
   });
 
+  function handleOptionChange(optionId: string) {
+    setSelectedOptionId(optionId);
+    const option = dayOptions.find((candidate) => candidate.id === optionId);
+    setModality(option?.offerModality ?? "general");
+  }
+
+  function handleMediaToggle(enabled: boolean) {
+    if (enabled) {
+      setModality("media_vianda");
+    } else {
+      setModality(offerModality ?? "general");
+    }
+  }
+
   async function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (saving) {
-      return;
-    }
-
+    if (saving) return;
     setError(null);
-
     if (!selectedOptionId) {
       setError("Elegí una opción de oferta.");
       return;
     }
-
     if (!selectedClientId) {
       setError("Elegí un cliente.");
       return;
     }
-
     const quantityValue = Number(createQuantity);
-
     if (!Number.isInteger(quantityValue) || quantityValue < 1) {
       setError("La cantidad debe ser un entero mayor o igual a 1.");
       return;
     }
-
     setSaving(true);
-
     try {
       const input: CreateOrderInput = {
         clientId: selectedClientId,
@@ -291,15 +239,10 @@ export function OrderDrawer({
         quantity: quantityValue,
         notes: createNotes || null,
       };
-
       const created = await createOrder(input);
       onCreated(created);
     } catch (createError: unknown) {
-      setError(
-        createError instanceof Error
-          ? createError.message
-          : "No se pudo crear el pedido.",
-      );
+      setError(createError instanceof Error ? createError.message : "No se pudo crear el pedido.");
     } finally {
       setSaving(false);
     }
@@ -307,29 +250,19 @@ export function OrderDrawer({
 
   async function handleEditSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-
-    if (saving || !order) {
-      return;
-    }
-
+    if (saving || !order) return;
     setError(null);
-
     const quantityValue = Number(quantity);
-
     if (!Number.isInteger(quantityValue) || quantityValue < 1) {
       setError("La cantidad debe ser un entero mayor o igual a 1.");
       return;
     }
-
     setSaving(true);
-
     try {
-      const input: UpdateOrderInput = {
+      const updated = await updateOrder(order.id, {
         quantity: quantityValue,
         notes: notes || null,
-      };
-      const updated = await updateOrder(order.id, input);
-
+      } satisfies UpdateOrderInput);
       setOrder(updated);
       setQuantity(String(updated.quantity));
       setNotes(updated.notes ?? "");
@@ -337,61 +270,39 @@ export function OrderDrawer({
       setBaselineNotes(updated.notes ?? "");
       onSaved(updated);
     } catch (saveError: unknown) {
-      setError(
-        saveError instanceof Error
-          ? saveError.message
-          : "No se pudieron guardar los cambios.",
-      );
+      setError(saveError instanceof Error ? saveError.message : "No se pudieron guardar los cambios.");
     } finally {
       setSaving(false);
     }
   }
 
   async function handleDelete() {
-    if (!order || deleting) {
-      return;
-    }
-
+    if (!order || deleting) return;
     const proceed = await confirm({
       title: "Eliminar pedido",
       message: "¿Eliminar este pedido? Esta acción no se puede deshacer.",
       confirmLabel: "Eliminar",
       tone: "danger",
     });
-
-    if (!proceed) {
-      return;
-    }
-
+    if (!proceed) return;
     setDeleting(true);
     setError(null);
-
     try {
       await deleteOrder(order.id);
       onDeleted(order.id);
     } catch (deleteError: unknown) {
-      setError(
-        deleteError instanceof Error
-          ? deleteError.message
-          : "No se pudo eliminar el pedido (¿la semana está cerrada?).",
-      );
+      setError(deleteError instanceof Error ? deleteError.message : "No se pudo eliminar el pedido (¿la semana está cerrada?).");
     } finally {
       setDeleting(false);
     }
   }
 
   const open = isCreateMode || orderId !== null;
-
-  if (!open) {
-    return null;
-  }
+  if (!open) return null;
 
   return (
     <>
-      <div
-        className="dish-drawer__backdrop"
-        onMouseDown={() => void requestClose()}
-      >
+      <div className="dish-drawer__backdrop" onMouseDown={() => void requestClose()}>
         <aside
           className="dish-drawer"
           role="dialog"
@@ -401,74 +312,37 @@ export function OrderDrawer({
         >
           <header className="dish-drawer__header">
             <div>
-              <p className="pedidos-page__eyebrow">
-                {isCreateMode ? "Nuevo pedido" : "Ficha de pedido"}
-              </p>
-              <h2 id="order-drawer-title">
-                {isCreateMode
-                  ? "Crear pedido"
-                  : (order?.client?.name ?? "Pedido")}
-              </h2>
+              <p className="pedidos-page__eyebrow">{isCreateMode ? "Nuevo pedido" : "Ficha de pedido"}</p>
+              <h2 id="order-drawer-title">{isCreateMode ? "Crear pedido" : (order?.client?.name ?? "Pedido")}</h2>
             </div>
-            <button
-              ref={closeButtonRef}
-              className="dish-drawer__close"
-              type="button"
-              onClick={() => void requestClose()}
-              aria-label="Cerrar"
-            >
-              ×
-            </button>
+            <button ref={closeButtonRef} className="dish-drawer__close" type="button" onClick={() => void requestClose()} aria-label="Cerrar">×</button>
           </header>
 
           <div className="dish-drawer__body">
             {loading && <p className="pedidos-feedback">Cargando…</p>}
-
             {!loading && error && (
-              <div
-                className="pedidos-feedback pedidos-feedback--error"
-                role="alert"
-              >
+              <div className="pedidos-feedback pedidos-feedback--error" role="alert">
                 <p>{error}</p>
-                <button type="button" onClick={() => setError(null)}>
-                  Cerrar aviso
-                </button>
+                <button type="button" onClick={() => setError(null)}>Cerrar aviso</button>
               </div>
             )}
 
             {!loading && isCreateMode && !activeWeek && (
-              <p className="dish-form__hint">
-                No hay una semana activa. Activá una semana desde Semanas para
-                poder cargar pedidos.
-              </p>
+              <p className="dish-form__hint">No hay una semana activa. Activá una semana desde Semanas para poder cargar pedidos.</p>
             )}
 
             {!loading && isCreateMode && activeWeek && offer && (
               <form className="dish-form" onSubmit={handleCreateSubmit}>
-                <p className="dish-form__hint">
-                  Semana activa:{" "}
-                  {formatDateRange(activeWeek.startDate, activeWeek.endDate)}.
-                </p>
+                <p className="dish-form__hint">Semana activa: {formatDateRange(activeWeek.startDate, activeWeek.endDate)}.</p>
 
                 <div className="dish-form__fields">
                   <label>
                     Día
-                    <select
-                      value={selectedDayId}
-                      onChange={(event) => {
-                        setSelectedDayId(event.target.value);
-                        setSelectedOptionId("");
-                      }}
-                      required
-                    >
+                    <select value={selectedDayId} onChange={(event) => { setSelectedDayId(event.target.value); setSelectedOptionId(""); setModality("general"); }} required>
                       <option value="">Elegir día…</option>
                       {offer.days.map((offerDay) => (
-                        <option
-                          key={offerDay.weekDay.id}
-                          value={offerDay.weekDay.id}
-                        >
-                          {DAY_LABELS[offerDay.weekDay.dayOfWeek]} (
-                          {formatDate(offerDay.weekDay.date)})
+                        <option key={offerDay.weekDay.id} value={offerDay.weekDay.id}>
+                          {DAY_LABELS[offerDay.weekDay.dayOfWeek]} ({formatDate(offerDay.weekDay.date)})
                         </option>
                       ))}
                     </select>
@@ -476,104 +350,60 @@ export function OrderDrawer({
 
                   <label>
                     Opción
-                    <select
-                      value={selectedOptionId}
-                      onChange={(event) =>
-                        setSelectedOptionId(event.target.value)
-                      }
-                      required
-                      disabled={!selectedDayId}
-                    >
+                    <select value={selectedOptionId} onChange={(event) => handleOptionChange(event.target.value)} required disabled={!selectedDayId}>
                       <option value="">Elegir opción…</option>
                       {dayOptions.map((option) => {
-                        const name =
-                          option.optionType === "dish"
-                            ? option.dishVersion?.name
-                            : option.menuVersion?.name;
-                        const price =
-                          option.optionType === "dish"
-                            ? option.dishVersion?.price
-                            : option.menuVersion?.price;
-
+                        const name = option.optionType === "dish" ? option.dishVersion?.name : option.menuVersion?.name;
+                        const price = option.optionType === "dish" ? option.dishVersion?.price : option.menuVersion?.price;
                         return (
                           <option key={option.id} value={option.id}>
-                            {option.optionType === "dish" ? "Plato" : "Menú"}:{" "}
-                            {name} — {formatCurrency(price ?? 0)}
+                            {option.offerModality === "general" ? "General" : "Opcional"} · {option.optionType === "dish" ? "Plato" : "Menú"}: {name} — {formatCurrency(price ?? 0)}
                           </option>
                         );
                       })}
                     </select>
                   </label>
 
-                  <label>
-                    Modalidad
-                    <select
-                      value={modality}
-                      onChange={(event) =>
-                        setModality(event.target.value as Modality)
-                      }
-                    >
-                      <option value="general">General</option>
-                      <option value="opcional">Opcional</option>
-                      <option value="media_vianda">Media vianda</option>
-                    </select>
-                  </label>
+                  <fieldset className="order-modality-toggle">
+                    <legend>Modalidad del pedido</legend>
+                    <p>
+                      {offerModality
+                        ? `La oferta seleccionada es ${MODALITY_LABELS[offerModality]}.`
+                        : "Seleccioná una opción para conocer su modalidad."}
+                    </p>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={modality === "media_vianda"}
+                        disabled={!selectedOptionId}
+                        onChange={(event) => handleMediaToggle(event.target.checked)}
+                      />
+                      Pedir como media vianda
+                    </label>
+                  </fieldset>
 
                   <label>
                     Cantidad
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={createQuantity}
-                      onChange={(event) =>
-                        setCreateQuantity(event.target.value)
-                      }
-                      required
-                    />
+                    <input type="number" min={1} step={1} value={createQuantity} onChange={(event) => setCreateQuantity(event.target.value)} required />
                   </label>
                 </div>
 
                 <div className="dish-form__fields">
                   <label>
                     Cliente
-                    <input
-                      type="search"
-                      value={clientQuery}
-                      onChange={(event) => setClientQuery(event.target.value)}
-                      placeholder="Buscar por nombre o teléfono"
-                    />
+                    <input type="search" value={clientQuery} onChange={(event) => setClientQuery(event.target.value)} placeholder="Buscar por nombre o teléfono" />
                   </label>
                 </div>
 
                 {expectedClients.length === 0 ? (
-                  <p className="order-hint">
-                    Esta semana todavía no tiene clientes esperados (¿la
-                    activaste?).
-                  </p>
+                  <p className="order-hint">Esta semana todavía no tiene clientes esperados (¿la activaste?).</p>
                 ) : (
                   <ul className="order-client-results">
                     {filteredClients.slice(0, 8).map((entry) => (
-                      <li
-                        key={entry.clientId}
-                        className={
-                          selectedClientId === entry.clientId
-                            ? "is-selected"
-                            : undefined
-                        }
-                      >
-                        <span>
-                          {entry.client?.name ?? "Cliente"} ·{" "}
-                          {entry.client?.phone ?? "sin teléfono"}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedClientId(entry.clientId)}
-                          disabled={selectedClientId === entry.clientId}
-                        >
-                          {selectedClientId === entry.clientId
-                            ? "Elegido"
-                            : "Elegir"}
+                      <li key={entry.clientId} className={selectedClientId === entry.clientId ? "is-selected" : undefined}>
+                        <span>{entry.client?.name ?? "Cliente"} · {entry.client?.phone ?? "sin teléfono"}</span>
+                        <button type="button" onClick={() => setSelectedClientId(entry.clientId)} disabled={selectedClientId === entry.clientId}>
+                          {selectedClientId === entry.clientId ? "Elegido" : "Elegir"}
                         </button>
                       </li>
                     ))}
@@ -583,116 +413,46 @@ export function OrderDrawer({
                 <div className="dish-form__fields">
                   <label>
                     Notas
-                    <textarea
-                      value={createNotes}
-                      onChange={(event) => setCreateNotes(event.target.value)}
-                      rows={2}
-                    />
+                    <textarea value={createNotes} onChange={(event) => setCreateNotes(event.target.value)} rows={3} placeholder="Agregá una observación para este pedido…" />
                   </label>
                 </div>
 
                 <footer className="dish-form__actions">
-                  <button
-                    type="button"
-                    onClick={() => void requestClose()}
-                    disabled={saving}
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={saving || !selectedOptionId || !selectedClientId}
-                  >
-                    {saving ? "Creando…" : "Crear pedido"}
-                  </button>
+                  <button type="button" onClick={() => void requestClose()} disabled={saving}>Cancelar</button>
+                  <button type="submit" disabled={saving || !selectedOptionId || !selectedClientId}>{saving ? "Creando…" : "Crear pedido"}</button>
                 </footer>
               </form>
             )}
 
             {!loading && !isCreateMode && order && (
               <form className="dish-form" onSubmit={handleEditSubmit}>
-                <section
-                  className="dish-form__summary"
-                  aria-label="Contexto del pedido"
-                >
+                <section className="dish-form__summary" aria-label="Contexto del pedido">
                   <div className="dish-form__summary-main">
-                    <p>
-                      {order.client?.name ?? "Cliente"} ·{" "}
-                      {order.client?.phone ?? "sin teléfono"}
-                    </p>
-                    <p>
-                      {order.week
-                        ? formatDateRange(
-                            order.week.startDate,
-                            order.week.endDate,
-                          )
-                        : "—"}
-                      {order.weekDay
-                        ? ` · ${DAY_LABELS[order.weekDay.dayOfWeek]} (${formatDate(order.weekDay.date)})`
-                        : ""}
-                    </p>
-                    <p>
-                      {order.option?.type === "menu" ? "Menú" : "Plato"}:{" "}
-                      {order.option?.name ?? "—"} ·{" "}
-                      {MODALITY_LABELS[order.modality]}
-                    </p>
-                    <p>
-                      Precio aplicado: {formatCurrency(order.appliedPrice)}{" "}
-                      (congelado, no editable)
-                    </p>
+                    <p>{order.client?.name ?? "Cliente"} · {order.client?.phone ?? "sin teléfono"}</p>
+                    <p>{order.week ? formatDateRange(order.week.startDate, order.week.endDate) : "—"}{order.weekDay ? ` · ${DAY_LABELS[order.weekDay.dayOfWeek]} (${formatDate(order.weekDay.date)})` : ""}</p>
+                    <p>{order.option?.type === "menu" ? "Menú" : "Plato"}: {order.option?.name ?? "—"} · {MODALITY_LABELS[order.modality]}</p>
+                    <p>Precio aplicado: {formatCurrency(order.appliedPrice)} (congelado, no editable)</p>
                   </div>
                 </section>
 
                 <div className="dish-form__fields">
                   <label>
                     Cantidad
-                    <input
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={quantity}
-                      onChange={(event) => setQuantity(event.target.value)}
-                      required
-                    />
+                    <input type="number" min={1} step={1} value={quantity} onChange={(event) => setQuantity(event.target.value)} required />
                   </label>
                   <label>
                     Notas
-                    <textarea
-                      value={notes}
-                      onChange={(event) => setNotes(event.target.value)}
-                      rows={3}
-                    />
+                    <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder="Agregá una observación para este pedido…" />
                   </label>
                 </div>
 
-                <p className="dish-usage__summary">
-                  Total:{" "}
-                  {formatCurrency((Number(quantity) || 0) * order.appliedPrice)}
-                </p>
+                <p className="dish-usage__summary">Total: {formatCurrency((Number(quantity) || 0) * order.appliedPrice)}</p>
 
                 <footer className="dish-form__actions dish-form__actions--split">
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete()}
-                    disabled={deleting || saving}
-                    className="order-delete-button"
-                  >
-                    {deleting ? "Eliminando…" : "Eliminar pedido"}
-                  </button>
+                  <button type="button" onClick={() => void handleDelete()} disabled={deleting || saving} className="order-delete-button">{deleting ? "Eliminando…" : "Eliminar pedido"}</button>
                   <div className="dish-form__actions-group">
-                    <button
-                      type="button"
-                      onClick={() => void requestClose()}
-                      disabled={saving || deleting}
-                    >
-                      Cerrar
-                    </button>
-                    <button
-                      type="submit"
-                      disabled={saving || deleting || !dirty}
-                    >
-                      {saving ? "Guardando…" : "Guardar cambios"}
-                    </button>
+                    <button type="button" onClick={() => void requestClose()} disabled={saving || deleting}>Cerrar</button>
+                    <button type="submit" disabled={saving || deleting || !dirty}>{saving ? "Guardando…" : "Guardar cambios"}</button>
                   </div>
                 </footer>
               </form>
