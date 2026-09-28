@@ -1,33 +1,179 @@
-.order-hint { margin: 0; color: var(--text-muted); font-size: 0.85rem; }
-.order-client-results { display: grid; gap: 6px; margin: 0 0 10px; padding: 0; list-style: none; max-height: 220px; overflow-y: auto; }
-.order-client-results li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-subtle); font-size: 0.85rem; }
-.order-client-results li.is-selected { border-color: var(--primary); background: var(--primary-subtle); }
-.order-client-results li > span { min-width: 0; overflow-wrap: anywhere; font-weight: 600; color: var(--text-main); }
-.order-client-results li button { flex: 0 0 auto; min-height: 32px; padding: 5px 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--bg-surface); color: var(--text-body); font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer; }
-.order-client-results li button:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--primary-border); color: var(--primary); }
-.order-client-results li button:disabled { cursor: not-allowed; opacity: 0.6; }
-.dish-form__actions.dish-form__actions--split { justify-content: space-between; }
-.dish-form__actions-group { display: flex; gap: 8px; }
-.order-delete-button { border-color: var(--danger-border) !important; color: var(--danger-text) !important; background: var(--bg-surface) !important; }
-.order-delete-button:hover:not(:disabled) { background: var(--danger-bg) !important; }
+.order-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.order-client-results {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.order-client-results li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+  font-size: 0.85rem;
+}
+.order-client-results li.is-selected {
+  border-color: var(--primary);
+  background: var(--primary-subtle);
+}
+.order-client-results li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.order-client-results li button {
+  flex: 0 0 auto;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  background: var(--bg-surface);
+  color: var(--text-body);
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.order-client-results li button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--primary-border);
+  color: var(--primary);
+}
+.order-client-results li button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.dish-form__actions.dish-form__actions--split {
+  justify-content: space-between;
+}
+.dish-form__actions-group {
+  display: flex;
+  gap: 8px;
+}
+.order-delete-button {
+  border-color: var(--danger-border) !important;
+  color: var(--danger-text) !important;
+  background: var(--bg-surface) !important;
+}
+.order-delete-button:hover:not(:disabled) {
+  background: var(--danger-bg) !important;
+}
 
 .dish-form input[type="search"],
-.dish-form textarea { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--input-bg); color: var(--text-main); font: inherit; line-height: 1.4; resize: vertical; }
+.dish-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--input-bg);
+  color: var(--text-main);
+  font: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
 .dish-form input[type="search"]:focus,
-.dish-form textarea:focus { outline: 3px solid var(--primary-border); outline-offset: 1px; border-color: var(--primary); }
+.dish-form textarea:focus {
+  outline: 3px solid var(--primary-border);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
 .dish-form input[type="search"]::placeholder,
-.dish-form textarea::placeholder { color: var(--text-muted); opacity: 1; }
-.dish-form textarea { min-height: 92px; }
+.dish-form textarea::placeholder {
+  color: var(--text-muted);
+  opacity: 1;
+}
+.dish-form textarea {
+  min-height: 92px;
+}
 
-.order-modality-toggle { display: grid; gap: 8px; margin: 0; padding: 14px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-subtle); }
-.order-modality-toggle legend { padding: 0 4px; color: var(--text-body); font-size: .875rem; font-weight: 650; }
-.order-modality-toggle p { margin: 0; color: var(--text-muted); font-size: .85rem; line-height: 1.45; }
-.order-modality-toggle > label { display: flex !important; grid-template-columns: none; flex-direction: row; align-items: center; gap: 9px !important; color: var(--text-body) !important; font-size: .875rem !important; font-weight: 600 !important; cursor: pointer; }
-.order-modality-toggle input[type="checkbox"] { width: 18px; height: 18px; margin: 0; accent-color: var(--primary); }
-.order-modality-toggle input[type="checkbox"]:disabled { cursor: not-allowed; }
+/* Modalidad del pedido: el flag de media vianda se puede marcar desde el
+   inicio (no depende de haber elegido opción). */
+.order-modality-toggle {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 4px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+.order-modality-toggle legend {
+  padding: 0 4px;
+  color: var(--text-body);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+.order-modality-toggle p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+.order-modality-toggle > label {
+  display: flex !important;
+  grid-template-columns: none;
+  flex-direction: row;
+  align-items: center;
+  gap: 9px !important;
+  color: var(--text-body) !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  cursor: pointer;
+}
+.order-modality-toggle input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--primary);
+}
+.order-modality-toggle__warning {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--danger-border);
+  border-radius: 8px;
+  background: var(--danger-bg);
+  color: var(--danger-text) !important;
+  font-size: 0.8rem !important;
+  font-weight: 600;
+}
+
+/* Resalta el selector de oferta cuando el pedido es media vianda: es la
+   opción cuyo precio se cobra al 50%. */
+.order-field--highlight {
+  padding: 10px;
+  border: 1px solid var(--primary-border);
+  border-radius: 8px;
+  background: var(--primary-subtle);
+}
+.dish-form__summary-main p .order-modality-chip {
+  margin-left: 8px;
+  vertical-align: middle;
+}
 
 @media (max-width: 720px) {
-  .dish-form__actions.dish-form__actions--split { flex-direction: column; align-items: stretch; }
-  .dish-form__actions-group { width: 100%; }
-  .dish-form__actions-group button { flex: 1; }
+  .dish-form__actions.dish-form__actions--split {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .dish-form__actions-group {
+    width: 100%;
+  }
+  .dish-form__actions-group button {
+    flex: 1;
+  }
 }

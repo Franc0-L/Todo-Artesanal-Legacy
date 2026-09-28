@@ -102,6 +102,10 @@ export async function getDishUsage(
  * en varias opciones del mismo día, ese día cuenta una sola
  * vez.
  *
+ * El `limit` recorta la lista de platos devuelta, no las
+ * filas leídas: el índice completo se resuelve en
+ * `collectDishUsage`.
+ *
  * TODO: si el volumen de week_day_options crece, migrar a
  * vista o RPC con agregación en PostgreSQL.
  */
@@ -109,7 +113,24 @@ export async function getRecentDishUsage(
   params: RecentDishUsageParams = {},
 ): Promise<RecentDishUsageItem[]> {
   const limit = normalizeLimit(params.limit);
+  const items = await collectDishUsage(params.sinceDate);
 
+  return items.slice(0, limit);
+}
+
+/**
+ * Construye el índice de uso por plato sobre todas las
+ * opciones de día registradas, sin límite de cantidad.
+ *
+ * Lo comparten `getRecentDishUsage`, que lo recorta al
+ * `limit` público, y `getDishSuggestions`, que necesita el
+ * histórico completo para puntuar sugerencias. Por eso no
+ * valida `limit`: no es una función pública del servicio y
+ * el tope real de filas lo pone PostgREST (`max_rows`).
+ */
+async function collectDishUsage(
+  sinceDate?: string,
+): Promise<RecentDishUsageItem[]> {
   const result = await runSupabase<WeekDayOptionWithRefs[]>(() =>
     supabase
       .from("week_day_options")
@@ -131,7 +152,7 @@ export async function getRecentDishUsage(
     const date = row.week_days?.date;
 
     if (!dishId || !date) continue;
-    if (params.sinceDate && date < params.sinceDate) continue;
+    if (sinceDate && date < sinceDate) continue;
 
     let dates = datesByDish.get(dishId);
 
@@ -156,9 +177,7 @@ export async function getRecentDishUsage(
     });
   }
 
-  return items
-    .sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt))
-    .slice(0, limit);
+  return items.sort((a, b) => b.lastUsedAt.localeCompare(a.lastUsedAt));
 }
 
 /**
@@ -168,7 +187,7 @@ export async function getRecentDishUsage(
  *  - solo platos activos;
  *  - si se pasa climate, filtra por ese clima;
  *  - si excludeRecentlyUsed=true, excluye los platos usados
- *    en el histórico reciente (ventana actual: 1000 registros).
+ *    en el histórico completo (tope de filas de PostgREST).
  *
  * NO implementa un algoritmo de scoring. La sugerencia es un
  * filtro + orden por fecha de último uso descendente.
@@ -192,7 +211,7 @@ export async function getDishSuggestions(
 
   const [dishesResult, usageResult] = await Promise.all([
     runSupabase<{ id: string; climate: string | null }[]>(() => dishesQuery),
-    getRecentDishUsage({ limit: 1000 }),
+    collectDishUsage(),
   ]);
 
   const dishes = dishesResult ?? [];

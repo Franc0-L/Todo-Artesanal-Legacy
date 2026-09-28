@@ -1,5 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
-import { WeekDrawer } from "./WeekDrawer";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { WeekWorkspace } from "./WeekWorkspace";
+import { WeekDetailDrawer } from "./WeekDetailDrawer";
+import { useConfirm } from "../../components/ui/useConfirm";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { listWeeks } from "./services/weeks.service";
 import { formatDate, formatDateRange } from "../../lib/formatters";
@@ -11,6 +13,8 @@ import "./week-details.css";
 
 const PAGE_SIZE = 20;
 type StatusFilter = "all" | WeekStatus;
+/** Superficie de edición abierta: taller inline (create/edit) o nada. */
+type WorkspaceState = { mode: "create" } | { mode: "edit"; weekId: string };
 
 const WEEK_STATUS_LABELS: Record<WeekStatus, string> = {
   draft: "Borrador",
@@ -21,9 +25,15 @@ const WEEK_STATUS_LABELS: Record<WeekStatus, string> = {
 export function SemanasPage() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
-  const [selectedWeekId, setSelectedWeekId] = useState<string | null>(null);
-  const [createDrawerOpen, setCreateDrawerOpen] = useState(false);
+  // Taller inline (pestaña en la página) y ficha liviana (drawer de solo
+  // lectura): mutuamente excluyentes para no tener dos superficies abiertas.
+  const [workspace, setWorkspace] = useState<WorkspaceState | null>(null);
+  const [detailWeekId, setDetailWeekId] = useState<string | null>(null);
   const [reloadToken, setReloadToken] = useState(0);
+  const { confirm, confirmDialog } = useConfirm();
+  // "Cambios sin guardar" del taller, reportado por `WeekWorkspace` vía
+  // `onDirtyChange`. Vive en una ref: la página no necesita re-renderizar.
+  const workspaceDirtyRef = useRef(false);
   // Los resultados se guardan junto a la clave de la consulta que los pidió:
   // `items`, `total`, `loading` y `error` se derivan en el render. Así el
   // efecto no sincroniza estado antes de pedir los datos y nunca se muestra
@@ -45,7 +55,10 @@ export function SemanasPage() {
 
   // `reload` vuelve a consultar con los mismos filtros: se usa cuando hay que
   // refrescar el listado sin cambiar la clave por otro motivo.
-  const reload = useCallback(() => setReloadToken((current) => current + 1), []);
+  const reload = useCallback(
+    () => setReloadToken((current) => current + 1),
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -57,7 +70,11 @@ export function SemanasPage() {
     })
       .then((loaded) => {
         if (cancelled) return;
-        setResult({ key: requestKey, items: loaded.items, total: loaded.total });
+        setResult({
+          key: requestKey,
+          items: loaded.items,
+          total: loaded.total,
+        });
         setFailure(null);
       })
       .catch((loadError: unknown) => {
@@ -77,15 +94,65 @@ export function SemanasPage() {
     };
   }, [page, requestKey, statusFilter]);
 
-  const handleCloseDrawer = useCallback(() => {
-    setSelectedWeekId(null);
-    setCreateDrawerOpen(false);
+  const handleCloseWorkspace = useCallback(() => {
+    workspaceDirtyRef.current = false;
+    setWorkspace(null);
   }, []);
+
+  const handleWorkspaceDirtyChange = useCallback((dirty: boolean) => {
+    workspaceDirtyRef.current = dirty;
+  }, []);
+
+  // El taller solo se cierra (o se reemplaza) si no hay cambios sin guardar,
+  // o si el usuario confirma descartarlos. Devuelve true si se puede seguir.
+  const confirmLeaveWorkspace = useCallback(async () => {
+    if (!workspaceDirtyRef.current) return true;
+
+    return confirm({
+      title: "Cambios sin guardar",
+      message:
+        "Hay cambios sin guardar en esta semana. Si cambiás ahora, se van a perder.",
+      confirmLabel: "Descartar cambios",
+      cancelLabel: "Seguir editando",
+      tone: "danger",
+    });
+  }, [confirm]);
+
+  // Click en una fila: abre la ficha liviana de esa semana (cerrando el
+  // taller si estuviera abierto, previa confirmación si hay cambios).
+  const handleOpenDetail = useCallback(
+    async (weekId: string) => {
+      if (!(await confirmLeaveWorkspace())) return;
+      workspaceDirtyRef.current = false;
+      setWorkspace(null);
+      setDetailWeekId(weekId);
+    },
+    [confirmLeaveWorkspace],
+  );
+
+  // Botón principal: alterna la creación inline; si hay un taller en edición,
+  // lo reemplaza por el de creación (con la misma confirmación).
+  const handlePrimaryAction = useCallback(async () => {
+    if (workspace?.mode === "create") {
+      if (!(await confirmLeaveWorkspace())) return;
+      workspaceDirtyRef.current = false;
+      setWorkspace(null);
+      return;
+    }
+
+    if (!(await confirmLeaveWorkspace())) return;
+    workspaceDirtyRef.current = false;
+    setDetailWeekId(null);
+    setWorkspace({ mode: "create" });
+  }, [confirmLeaveWorkspace, workspace]);
 
   const handleWeekCreated = useCallback(
     (created: Week) => {
-      setCreateDrawerOpen(false);
-      setSelectedWeekId(created.id);
+      workspaceDirtyRef.current = false;
+      setDetailWeekId(null);
+      // El `key` pasa de "create" a `edit:${id}`, así que el taller se
+      // remonta y arranca cargando la semana recién creada.
+      setWorkspace({ mode: "edit", weekId: created.id });
       setPage(1);
       // `reload` fuerza la consulta aunque ya estuviéramos en la página 1 con
       // los mismos filtros (cambiar `page` a 1 no alcanzaría).
@@ -120,8 +187,9 @@ export function SemanasPage() {
   // Tras un borrado, si la página quedó vacía volvemos una atrás; si no,
   // recargamos con los mismos filtros.
   const handleWeekDeleted = useCallback(() => {
-    setSelectedWeekId(null);
-    setCreateDrawerOpen(false);
+    workspaceDirtyRef.current = false;
+    setWorkspace(null);
+    setDetailWeekId(null);
 
     if (items.length <= 1 && page > 1) {
       setPage(page - 1);
@@ -153,15 +221,31 @@ export function SemanasPage() {
           <button
             className="semanas-primary-action"
             type="button"
-            onClick={() => {
-              setSelectedWeekId(null);
-              setCreateDrawerOpen(true);
-            }}
+            aria-expanded={workspace !== null}
+            aria-controls={workspace ? "week-workspace" : undefined}
+            onClick={() => void handlePrimaryAction()}
           >
-            Nueva semana
+            {workspace?.mode === "create" ? "Cerrar creación" : "Nueva semana"}
           </button>
         </div>
       </header>
+
+      {/* El taller vive en flujo arriba del listado (no es un overlay): el
+          `key` lo remonta al cambiar de semana o de modo para arrancar limpio. */}
+      {workspace && (
+        <WeekWorkspace
+          key={
+            workspace.mode === "create" ? "create" : `edit:${workspace.weekId}`
+          }
+          mode={workspace.mode}
+          weekId={workspace.mode === "edit" ? workspace.weekId : null}
+          onClose={handleCloseWorkspace}
+          onCreated={handleWeekCreated}
+          onSaved={handleWeekSaved}
+          onDeleted={handleWeekDeleted}
+          onDirtyChange={handleWorkspaceDirtyChange}
+        />
+      )}
 
       <div className="semanas-toolbar">
         <div className="semanas-filter">
@@ -216,7 +300,7 @@ export function SemanasPage() {
                   <button
                     className="week-row"
                     type="button"
-                    onClick={() => setSelectedWeekId(week.id)}
+                    onClick={() => void handleOpenDetail(week.id)}
                     aria-label={`Abrir semana ${formatDateRange(week.startDate, week.endDate)}`}
                   >
                     <strong>
@@ -263,17 +347,17 @@ export function SemanasPage() {
         </nav>
       )}
 
-      {/* El `key` remonta el drawer al cambiar de semana o de modo: el
-          formulario arranca limpio sin resetear estado dentro de un efecto. */}
-      <WeekDrawer
-        key={createDrawerOpen ? "create" : `edit:${selectedWeekId ?? "closed"}`}
-        mode={createDrawerOpen ? "create" : "edit"}
-        weekId={createDrawerOpen ? null : selectedWeekId}
-        onClose={handleCloseDrawer}
-        onCreated={handleWeekCreated}
-        onSaved={handleWeekSaved}
-        onDeleted={handleWeekDeleted}
+      <WeekDetailDrawer
+        key={detailWeekId ?? "closed"}
+        weekId={detailWeekId}
+        onClose={() => setDetailWeekId(null)}
+        onOpenWorkspace={(weekId) => {
+          setDetailWeekId(null);
+          setWorkspace({ mode: "edit", weekId });
+        }}
       />
+
+      {confirmDialog}
     </section>
   );
 }

@@ -21,8 +21,18 @@ import {
 import { getExpectedClientCount } from "./services/week-expected-clients.service";
 import { listDishes } from "../platos/services/dishes.service";
 import { listDishVersions } from "../platos/services/dish-versions.service";
+import { getDishSuggestions } from "../platos/services/dish-usage.service";
 import { listMenus } from "../menus/services/menus.service";
 import { getLatestMenuVersion } from "../menus/services/menu-versions.service";
+import { DAY_LABELS } from "./day-labels";
+import {
+  collectUsedDishIds,
+  missingOfferModalities,
+  pickDishes,
+  sortDayOptions,
+  weekSuggestionSignature,
+  type SuggestionDish,
+} from "./week-suggest";
 import {
   formatCurrency,
   formatDate,
@@ -33,11 +43,15 @@ import { isAppError } from "../../lib/errors";
 import type { WeekStatus } from "../../types/domain";
 import type { Week } from "./types/week";
 import type { WeekDay } from "./types/week-day";
-import type { WeekDayOption, WeekOffer } from "./types/week-offer";
+import type {
+  OfferModality,
+  WeekDayOption,
+  WeekOffer,
+} from "./types/week-offer";
 import type { DishListItem } from "../platos/types/dish-list";
 import type { MenuListItem } from "../menus/types/menu-list";
 
-interface WeekDrawerProps {
+interface WeekWorkspaceProps {
   mode: "create" | "edit";
   weekId: string | null;
   onClose: () => void;
@@ -45,6 +59,11 @@ interface WeekDrawerProps {
   onSaved: (week: Week) => void;
   /** Se dispara cuando la semana se eliminó definitivamente. */
   onDeleted: (weekId: string) => void;
+  /**
+   * Reporta si hay cambios sin guardar (fechas tocadas sin persistir). La
+   * página lo usa para confirmar antes de cerrar o cambiar de vista.
+   */
+  onDirtyChange?: (dirty: boolean) => void;
 }
 
 interface DateFormState {
@@ -60,19 +79,39 @@ const WEEK_STATUS_LABELS: Record<WeekStatus, string> = {
   closed: "Cerrada",
 };
 
-export function WeekDrawer({
+const OFFER_MODALITY_LABELS: Record<OfferModality, string> = {
+  general: "General",
+  opcional: "Opcional",
+};
+
+/** Feedback de la última corrida del sugeridor, por día o de la semana. */
+interface SuggestionState {
+  runningScope: "day" | "week" | null;
+  dayId: string | null;
+  error: string | null;
+  message: string | null;
+}
+
+const IDLE_SUGGESTION: SuggestionState = {
+  runningScope: null,
+  dayId: null,
+  error: null,
+  message: null,
+};
+
+export function WeekWorkspace({
   mode,
   weekId,
   onClose,
   onCreated,
   onSaved,
   onDeleted,
-}: WeekDrawerProps) {
+  onDirtyChange,
+}: WeekWorkspaceProps) {
   const isCreateMode = mode === "create";
-  // En modo edición el drawer arranca cargando la semana: el estado inicial ya
-  // representa ese "cargando" y el efecto no necesita sincronizar estado.
+  // En modo edición el taller arranca cargando la semana: el estado inicial
+  // ya representa ese "cargando" y el efecto no sincroniza estado.
   const isEditMode = !isCreateMode && weekId !== null;
-  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [week, setWeek] = useState<Week | null>(null);
   const [offer, setOffer] = useState<WeekOffer | null>(null);
   const [expectedCount, setExpectedCount] = useState<number | null>(null);
@@ -90,6 +129,13 @@ export function WeekDrawer({
   const [error, setError] = useState<string | null>(null);
   const [datesError, setDatesError] = useState<string | null>(null);
   const [datesMessage, setDatesMessage] = useState<string | null>(null);
+  const [suggestion, setSuggestion] =
+    useState<SuggestionState>(IDLE_SUGGESTION);
+
+  // El pool de platos para sugerir se cachea por apertura del taller; las
+  // versiones se resuelven recién al aplicar cada sugerencia.
+  const suggestionPoolRef = useRef<SuggestionDish[] | null>(null);
+  const previousSuggestionRef = useRef<string | null>(null);
 
   const { confirm, confirmDialog } = useConfirm();
 
@@ -97,6 +143,12 @@ export function WeekDrawer({
     ? createForm.startDate !== "" || createForm.endDate !== ""
     : datesForm.startDate !== baselineDatesForm.startDate ||
       datesForm.endDate !== baselineDatesForm.endDate;
+
+  // Avisa a la página (vía ref, sin re-render) cuando cambia lo sucio del
+  // formulario. `onDirtyChange` es estable (useCallback con [] en la página).
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
 
   const reloadOffer = useCallback(async () => {
     if (!weekId) {
@@ -163,20 +215,6 @@ export function WeekDrawer({
     };
   }, [isEditMode, weekId]);
 
-  useEffect(() => {
-    if (!isCreateMode && !weekId) {
-      return;
-    }
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    closeButtonRef.current?.focus();
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-    };
-  }, [weekId, isCreateMode]);
-
   const requestClose = useCallback(async () => {
     if (dirty) {
       const proceed = await confirm({
@@ -196,23 +234,9 @@ export function WeekDrawer({
     onClose();
   }, [confirm, dirty, onClose]);
 
-  useEffect(() => {
-    if (!isCreateMode && !weekId) {
-      return;
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key !== "Escape") {
-        return;
-      }
-
-      void requestClose();
-    }
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [weekId, isCreateMode, requestClose]);
-
+  // El taller es un panel dentro de la página (no un modal): no bloquea el
+  // scroll ni se cierra con Escape, así la tecla no compite con los campos
+  // de búsqueda de cada día.
   async function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
@@ -416,6 +440,235 @@ export function WeekDrawer({
     }
   }
 
+  /**
+   * Pool de platos activos para sugerir, cacheado por apertura del taller.
+   * Se filtra por nombre no vacío porque la sugerencia se muestra tal cual.
+   */
+  async function loadSuggestionPool(): Promise<SuggestionDish[]> {
+    if (!suggestionPoolRef.current) {
+      const suggestions = await getDishSuggestions({ limit: 100 });
+      suggestionPoolRef.current = suggestions
+        .filter((item) => item.name.trim() !== "")
+        .map((item) => ({
+          dishId: item.dishId,
+          name: item.name,
+          uses: item.uses,
+        }));
+    }
+
+    return suggestionPoolRef.current;
+  }
+
+  /**
+   * Agrega una sugerencia a un día: resuelve la última versión del plato y
+   * la carga en la modalidad libre indicada.
+   */
+  async function addSuggestedDish(
+    weekDayId: string,
+    slot: OfferModality,
+    dish: SuggestionDish,
+  ): Promise<void> {
+    const versions = await listDishVersions(dish.dishId);
+    const latest = versions[0];
+
+    if (!latest) {
+      throw new Error(`${dish.name} no tiene versiones cargadas.`);
+    }
+
+    await addDayOption({
+      weekDayId,
+      offerModality: slot,
+      optionType: "dish",
+      dishVersionId: latest.id,
+    });
+  }
+
+  async function handleSuggestDay(targetDayId: string) {
+    if (!offer || suggestion.runningScope !== null) {
+      return;
+    }
+
+    const offerDay = offer.days.find((day) => day.weekDay.id === targetDayId);
+    const slots = offerDay ? missingOfferModalities(offerDay.options) : [];
+
+    if (!offerDay || slots.length === 0) {
+      return;
+    }
+
+    setSuggestion({
+      runningScope: "day",
+      dayId: targetDayId,
+      error: null,
+      message: null,
+    });
+
+    const added: OfferModality[] = [];
+
+    try {
+      const pool = await loadSuggestionPool();
+      const picked = pickDishes(
+        pool,
+        collectUsedDishIds(offer),
+        slots.length,
+        previousSuggestionRef.current,
+      );
+
+      if (!picked || picked.length === 0) {
+        setSuggestion({
+          runningScope: null,
+          dayId: targetDayId,
+          error:
+            "No hay platos activos libres para sugerir en este día. Cargá más platos o agregá la opción a mano.",
+          message: null,
+        });
+        return;
+      }
+
+      for (let index = 0; index < picked.length; index += 1) {
+        await addSuggestedDish(targetDayId, slots[index], picked[index]);
+        added.push(slots[index]);
+      }
+
+      previousSuggestionRef.current = weekSuggestionSignature(
+        picked.map((dish) => dish.dishId),
+      );
+      setSuggestion({
+        runningScope: null,
+        dayId: targetDayId,
+        error: null,
+        message: `Se agregaron ${added.length} opción${
+          added.length === 1 ? "" : "es"
+        }: ${added.map((slot) => OFFER_MODALITY_LABELS[slot]).join(" y ")}.`,
+      });
+    } catch (suggestError: unknown) {
+      const baseMessage =
+        suggestError instanceof Error
+          ? suggestError.message
+          : "No se pudieron sugerir opciones.";
+      const partialNote =
+        added.length > 0
+          ? ` Se agregaron ${added.length} de ${slots.length} opciones.`
+          : "";
+
+      setSuggestion({
+        runningScope: null,
+        dayId: targetDayId,
+        error: `${baseMessage}${partialNote}`,
+        message: null,
+      });
+    } finally {
+      await reloadOffer();
+    }
+  }
+
+  async function handleSuggestWeek() {
+    if (!offer || suggestion.runningScope !== null) {
+      return;
+    }
+
+    const pendingDays = offer.days
+      .map((offerDay) => ({
+        offerDay,
+        slots: missingOfferModalities(offerDay.options),
+      }))
+      .filter((entry) => entry.slots.length > 0);
+
+    if (pendingDays.length === 0) {
+      return;
+    }
+
+    const totalSlots = pendingDays.reduce(
+      (total, entry) => total + entry.slots.length,
+      0,
+    );
+
+    setSuggestion({
+      runningScope: "week",
+      dayId: null,
+      error: null,
+      message: null,
+    });
+
+    const suggestedIds: string[] = [];
+    const failures: string[] = [];
+
+    try {
+      const pool = await loadSuggestionPool();
+      const usedDishIds = collectUsedDishIds(offer);
+
+      for (const { offerDay, slots } of pendingDays) {
+        const picked = pickDishes(
+          pool,
+          usedDishIds,
+          slots.length,
+          previousSuggestionRef.current,
+        );
+        const dayLabel = DAY_LABELS[offerDay.weekDay.dayOfWeek];
+
+        if (!picked || picked.length === 0) {
+          failures.push(`${dayLabel}: sin platos libres.`);
+          continue;
+        }
+
+        for (let index = 0; index < picked.length; index += 1) {
+          try {
+            await addSuggestedDish(
+              offerDay.weekDay.id,
+              slots[index],
+              picked[index],
+            );
+            usedDishIds.add(picked[index].dishId);
+            suggestedIds.push(picked[index].dishId);
+          } catch (dayError: unknown) {
+            failures.push(
+              `${dayLabel}: ${
+                dayError instanceof Error
+                  ? dayError.message
+                  : "no se pudo agregar la opción."
+              }`,
+            );
+          }
+        }
+      }
+
+      if (suggestedIds.length > 0) {
+        previousSuggestionRef.current = weekSuggestionSignature(suggestedIds);
+      }
+
+      setSuggestion({
+        runningScope: null,
+        dayId: null,
+        message:
+          failures.length === 0
+            ? `Se agregaron ${suggestedIds.length} de ${totalSlots} opciones en la semana.`
+            : null,
+        error:
+          failures.length === 0
+            ? null
+            : `Se agregaron ${suggestedIds.length} de ${totalSlots} opciones. ${failures.join(" ")}`,
+      });
+    } catch (suggestError: unknown) {
+      setSuggestion({
+        runningScope: null,
+        dayId: null,
+        message: null,
+        error:
+          suggestError instanceof Error
+            ? suggestError.message
+            : "No se pudieron armar las sugerencias de la semana.",
+      });
+    } finally {
+      await reloadOffer();
+    }
+  }
+
+  const missingSlotsTotal = offer
+    ? offer.days.reduce(
+        (total, day) => total + missingOfferModalities(day.options).length,
+        0,
+      )
+    : 0;
+
   const open = isCreateMode || weekId !== null;
 
   if (!open) {
@@ -424,23 +677,18 @@ export function WeekDrawer({
 
   return (
     <>
-      <div
-        className="dish-drawer__backdrop"
-        onMouseDown={() => void requestClose()}
+      <section
+        id="week-workspace"
+        className="week-workspace"
+        aria-labelledby="week-workspace-title"
       >
-        <aside
-          className="dish-drawer week-drawer"
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="week-drawer-title"
-          onMouseDown={(event) => event.stopPropagation()}
-        >
-          <header className="dish-drawer__header">
+        <div className="week-workspace__surface">
+          <header className="dish-drawer__header week-workspace__header">
             <div>
               <p className="semanas-page__eyebrow">
-                {isCreateMode ? "Nueva semana" : "Ficha de semana"}
+                {isCreateMode ? "Nueva semana" : "Semana en la página"}
               </p>
-              <h2 id="week-drawer-title">
+              <h2 id="week-workspace-title">
                 {isCreateMode
                   ? "Crear semana"
                   : week
@@ -449,21 +697,20 @@ export function WeekDrawer({
               </h2>
             </div>
             <button
-              ref={closeButtonRef}
               className="dish-drawer__close"
               type="button"
               onClick={() => void requestClose()}
               aria-label={
                 isCreateMode
                   ? "Cerrar creación de semana"
-                  : "Cerrar ficha de la semana"
+                  : "Cerrar el taller de la semana"
               }
             >
               ×
             </button>
           </header>
 
-          <div className="dish-drawer__body">
+          <div className="dish-drawer__body week-workspace__body">
             {loading && <p className="semanas-feedback">Cargando ficha…</p>}
 
             {!loading && error && (
@@ -482,8 +729,8 @@ export function WeekDrawer({
               <form className="dish-form" onSubmit={handleCreateSubmit}>
                 <p className="dish-form__hint">
                   La semana debe empezar un lunes y terminar un viernes. Los 5
-                  días se crean automáticamente; la oferta se carga después de
-                  crear la semana.
+                  días se crean automáticamente y la oferta se carga a
+                  continuación en este mismo panel.
                 </p>
                 <div className="dish-form__fields">
                   <label>
@@ -550,7 +797,7 @@ export function WeekDrawer({
                       </p>
                     )}
                   </div>
-                  <div className="week-drawer__lifecycle-actions">
+                  <div className="week-workspace__lifecycle-actions">
                     {week.status === "draft" && (
                       <button
                         className="dish-form__status-action"
@@ -653,10 +900,39 @@ export function WeekDrawer({
                       <p>
                         {week.status === "closed"
                           ? "Semana cerrada: la oferta queda histórica y no se puede modificar."
-                          : "Cada día necesita al menos una opción (plato o menú) para poder activar la semana."}
+                          : "Cada día necesita una opción General y una Opcional para poder activar la semana. Podés sugerirlas o cargarlas a mano."}
                       </p>
                     </div>
+                    {week.status !== "closed" && (
+                      <button
+                        className="week-offer-suggest"
+                        type="button"
+                        onClick={() => void handleSuggestWeek()}
+                        disabled={
+                          suggestion.runningScope !== null ||
+                          missingSlotsTotal === 0
+                        }
+                      >
+                        {suggestion.runningScope === "week"
+                          ? "Armando semana…"
+                          : "Sugerir semana"}
+                      </button>
+                    )}
                   </div>
+
+                  {suggestion.dayId === null && suggestion.message && (
+                    <p className="dish-form__success" role="status">
+                      {suggestion.message}
+                    </p>
+                  )}
+                  {suggestion.dayId === null && suggestion.error && (
+                    <div
+                      className="dish-link-feedback dish-link-feedback--error"
+                      role="alert"
+                    >
+                      {suggestion.error}
+                    </div>
+                  )}
 
                   {offer && (
                     <div className="week-offer-grid">
@@ -667,6 +943,22 @@ export function WeekDrawer({
                           options={offerDay.options}
                           editable={week.status !== "closed"}
                           onChanged={() => void reloadOffer()}
+                          suggestRunning={
+                            suggestion.runningScope === "day" &&
+                            suggestion.dayId === offerDay.weekDay.id
+                          }
+                          suggestBlocked={suggestion.runningScope !== null}
+                          suggestFeedback={
+                            suggestion.dayId === offerDay.weekDay.id
+                              ? {
+                                  message: suggestion.message,
+                                  error: suggestion.error,
+                                }
+                              : null
+                          }
+                          onSuggest={() =>
+                            void handleSuggestDay(offerDay.weekDay.id)
+                          }
                         />
                       ))}
                     </div>
@@ -710,26 +1002,28 @@ export function WeekDrawer({
               </div>
             )}
           </div>
-        </aside>
-      </div>
+        </div>
+      </section>
       {confirmDialog}
     </>
   );
 }
-
-const DAY_LABELS: Record<number, string> = {
-  1: "Lunes",
-  2: "Martes",
-  3: "Miércoles",
-  4: "Jueves",
-  5: "Viernes",
-};
 
 interface DayOfferColumnProps {
   day: WeekDay;
   options: WeekDayOption[];
   editable: boolean;
   onChanged: () => void;
+  /**
+   * true mientras el sugeridor corre para este día (para el texto del
+   * botón). Distinto de `suggestBlocked`, que corta cualquier corrida.
+   */
+  suggestRunning: boolean;
+  /** true cuando hay una corrida del sugeridor en curso (día o semana). */
+  suggestBlocked: boolean;
+  /** Último resultado del sugeridor para este día, si lo hubo. */
+  suggestFeedback: { message: string | null; error: string | null } | null;
+  onSuggest: () => void;
 }
 
 const DAY_SEARCH_DEBOUNCE_MS = 350;
@@ -745,6 +1039,10 @@ function DayOfferColumn({
   options,
   editable,
   onChanged,
+  suggestRunning,
+  suggestBlocked,
+  suggestFeedback,
+  onSuggest,
 }: DayOfferColumnProps) {
   const [searchType, setSearchType] = useState<"dish" | "menu">("dish");
   const [query, setQuery] = useState("");
@@ -920,7 +1218,7 @@ function DayOfferColumn({
         {options.length === 0 && (
           <li className="week-day-column__empty">Sin opciones cargadas.</li>
         )}
-        {options.map((option) => {
+        {sortDayOptions(options).map((option) => {
           const name =
             option.optionType === "dish"
               ? option.dishVersion?.name
@@ -931,7 +1229,10 @@ function DayOfferColumn({
               : option.menuVersion?.price;
 
           return (
-            <li key={option.id} className="week-day-column__option">
+            <li
+              key={option.id}
+              className={`week-day-column__option week-day-column__option--${option.offerModality}`}
+            >
               <span
                 className={`week-day-column__option-type week-day-column__option-type--${option.optionType}`}
               >
@@ -958,6 +1259,26 @@ function DayOfferColumn({
 
       {editable && (
         <div className="week-day-column__composer">
+          <div className="week-day-column__suggest">
+            <button
+              type="button"
+              onClick={onSuggest}
+              disabled={
+                suggestBlocked || missingOfferModalities(options).length === 0
+              }
+            >
+              {suggestRunning ? "Sugiriendo…" : "Sugerir opciones"}
+            </button>
+            {suggestFeedback?.message && (
+              <p className="week-day-column__hint">{suggestFeedback.message}</p>
+            )}
+            {suggestFeedback?.error && (
+              <p className="week-day-column__hint week-day-column__hint--error">
+                {suggestFeedback.error}
+              </p>
+            )}
+          </div>
+
           <div className="week-day-column__type-toggle">
             <button
               type="button"

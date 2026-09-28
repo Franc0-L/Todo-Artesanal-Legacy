@@ -14,6 +14,8 @@ import type { OrderTotals, OrderTotalsParams } from "../types/order-totals";
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
+/** Lote usado por `listAllOrders` para recorrer todas las páginas. */
+const ALL_PAGE_SIZE = 100;
 
 const ORDER_DETAIL_SELECT = `
   id,
@@ -114,12 +116,20 @@ export async function listOrders(
 
   if (params.weekId !== undefined) {
     validateUuid(params.weekId, "weekId");
-    query = query.filter("week_day_options.week_days.week_id", "eq", params.weekId);
+    query = query.filter(
+      "week_day_options.week_days.week_id",
+      "eq",
+      params.weekId,
+    );
   }
 
   if (params.weekDayId !== undefined) {
     validateUuid(params.weekDayId, "weekDayId");
-    query = query.filter("week_day_options.week_day_id", "eq", params.weekDayId);
+    query = query.filter(
+      "week_day_options.week_day_id",
+      "eq",
+      params.weekDayId,
+    );
   }
 
   if (params.modality !== undefined) {
@@ -137,18 +147,64 @@ export async function listOrders(
   };
 }
 
+/**
+ * Devuelve todos los pedidos que cumplen los filtros, sin paginar.
+ *
+ * La sección Pedidos agrupa por cliente y necesita la lista completa para
+ * subtotalizar bien: se pide por lotes usando el `total` exacto de la primera
+ * consulta (mismo criterio que historical-week-detail.service.ts).
+ */
+export async function listAllOrders(
+  params: Omit<OrderListParams, "page" | "pageSize"> = {},
+): Promise<{ items: OrderDetail[]; total: number }> {
+  const firstPage = await listOrders({
+    ...params,
+    page: 1,
+    pageSize: ALL_PAGE_SIZE,
+  });
+  const totalPages = Math.ceil(firstPage.total / ALL_PAGE_SIZE);
+
+  if (totalPages <= 1) {
+    return { items: firstPage.items, total: firstPage.total };
+  }
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
+      listOrders({ ...params, page: index + 2, pageSize: ALL_PAGE_SIZE }),
+    ),
+  );
+
+  return {
+    items: [
+      firstPage.items,
+      ...remainingPages.map((page) => page.items),
+    ].flat(),
+    total: firstPage.total,
+  };
+}
+
 export async function getOrder(orderId: string): Promise<OrderDetail> {
   validateUuid(orderId, "orderId");
   const row = await runSupabaseOrThrow<OrderDetailRow>(() =>
-    supabase.from("orders").select(ORDER_DETAIL_SELECT).eq("id", orderId).maybeSingle(),
+    supabase
+      .from("orders")
+      .select(ORDER_DETAIL_SELECT)
+      .eq("id", orderId)
+      .maybeSingle(),
   );
   return mapOrderDetail(row);
 }
 
-export async function createOrder(input: CreateOrderInput): Promise<OrderDetail> {
+export async function createOrder(
+  input: CreateOrderInput,
+): Promise<OrderDetail> {
   const payload = validateCreateOrderInput(input);
   const row = await runSupabaseOrThrow<OrderDetailRow>(() =>
-    supabase.from("orders").insert(payload).select(ORDER_DETAIL_SELECT).single(),
+    supabase
+      .from("orders")
+      .insert(payload)
+      .select(ORDER_DETAIL_SELECT)
+      .single(),
   );
   return mapOrderDetail(row);
 }
@@ -161,22 +217,36 @@ export async function updateOrder(
   const payload = validateUpdateOrderInput(input);
 
   if (Object.keys(payload).length === 0) {
-    throw new AppError("VALIDATION_ERROR", "Debe indicarse al menos un campo para actualizar.");
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Debe indicarse al menos un campo para actualizar.",
+    );
   }
 
   const row = await runSupabaseOrThrow<OrderDetailRow>(() =>
-    supabase.from("orders").update(payload).eq("id", orderId).select(ORDER_DETAIL_SELECT).single(),
+    supabase
+      .from("orders")
+      .update(payload)
+      .eq("id", orderId)
+      .select(ORDER_DETAIL_SELECT)
+      .single(),
   );
   return mapOrderDetail(row);
 }
 
 export async function deleteOrder(orderId: string): Promise<void> {
   validateUuid(orderId, "orderId");
-  await runSupabase<unknown>(() => supabase.from("orders").delete().eq("id", orderId));
+  await runSupabase<unknown>(() =>
+    supabase.from("orders").delete().eq("id", orderId),
+  );
 }
 
-export async function getOrderTotals(params: OrderTotalsParams = {}): Promise<OrderTotals> {
-  let query = supabase.from("orders").select(ORDER_TOTALS_SELECT, { count: "exact" });
+export async function getOrderTotals(
+  params: OrderTotalsParams = {},
+): Promise<OrderTotals> {
+  let query = supabase
+    .from("orders")
+    .select(ORDER_TOTALS_SELECT, { count: "exact" });
 
   if (params.clientId !== undefined) {
     validateUuid(params.clientId, "clientId");
@@ -185,12 +255,20 @@ export async function getOrderTotals(params: OrderTotalsParams = {}): Promise<Or
 
   if (params.weekId !== undefined) {
     validateUuid(params.weekId, "weekId");
-    query = query.filter("week_day_options.week_days.week_id", "eq", params.weekId);
+    query = query.filter(
+      "week_day_options.week_days.week_id",
+      "eq",
+      params.weekId,
+    );
   }
 
   if (params.weekDayId !== undefined) {
     validateUuid(params.weekDayId, "weekDayId");
-    query = query.filter("week_day_options.week_day_id", "eq", params.weekDayId);
+    query = query.filter(
+      "week_day_options.week_day_id",
+      "eq",
+      params.weekDayId,
+    );
   }
 
   if (params.modality !== undefined) {
@@ -226,7 +304,10 @@ function validateCreateOrderInput(input: CreateOrderInput): {
   notes: string | null;
 } {
   if (!input || typeof input !== "object") {
-    throw new AppError("VALIDATION_ERROR", "Los datos del pedido son obligatorios.");
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Los datos del pedido son obligatorios.",
+    );
   }
 
   validateUuid(input.clientId, "clientId");
@@ -249,7 +330,10 @@ function validateUpdateOrderInput(input: UpdateOrderInput): {
   notes?: string | null;
 } {
   if (!input || typeof input !== "object") {
-    throw new AppError("VALIDATION_ERROR", "Los datos a actualizar son obligatorios.");
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "Los datos a actualizar son obligatorios.",
+    );
   }
 
   const payload: { quantity?: number; notes?: string | null } = {};
@@ -271,11 +355,16 @@ function validateModality(value: Modality): void {
 
 function validateQuantity(value: number): void {
   if (!Number.isInteger(value) || value < 1) {
-    throw new AppError("VALIDATION_ERROR", "quantity debe ser un entero mayor o igual a 1.");
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "quantity debe ser un entero mayor o igual a 1.",
+    );
   }
 }
 
-function normalizeNullableString(value: string | null | undefined): string | null {
+function normalizeNullableString(
+  value: string | null | undefined,
+): string | null {
   if (value === undefined || value === null) return null;
   if (typeof value !== "string") {
     throw new AppError("VALIDATION_ERROR", "El valor debe ser texto o null.");
@@ -287,7 +376,10 @@ function normalizeNullableString(value: string | null | undefined): string | nul
 function normalizePage(value: number | undefined): number {
   if (value === undefined) return DEFAULT_PAGE;
   if (!Number.isInteger(value) || value < 1) {
-    throw new AppError("VALIDATION_ERROR", "page debe ser un entero mayor o igual a 1.");
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "page debe ser un entero mayor o igual a 1.",
+    );
   }
   return value;
 }
@@ -295,7 +387,10 @@ function normalizePage(value: number | undefined): number {
 function normalizePageSize(value: number | undefined): number {
   if (value === undefined) return DEFAULT_PAGE_SIZE;
   if (!Number.isInteger(value) || value < 1 || value > MAX_PAGE_SIZE) {
-    throw new AppError("VALIDATION_ERROR", `pageSize debe ser un entero entre 1 y ${MAX_PAGE_SIZE}.`);
+    throw new AppError(
+      "VALIDATION_ERROR",
+      `pageSize debe ser un entero entre 1 y ${MAX_PAGE_SIZE}.`,
+    );
   }
   return value;
 }
@@ -303,25 +398,41 @@ function normalizePageSize(value: number | undefined): number {
 function validateUuid(value: string, fieldName: string): void {
   if (
     typeof value !== "string" ||
-    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
   ) {
-    throw new AppError("VALIDATION_ERROR", `${fieldName} debe ser un UUID válido.`);
+    throw new AppError(
+      "VALIDATION_ERROR",
+      `${fieldName} debe ser un UUID válido.`,
+    );
   }
 }
 
 function mapModality(value: string): Modality {
-  if (value === "general" || value === "opcional" || value === "media_vianda") return value;
-  throw new AppError("DATABASE_ERROR", `La modalidad almacenada es inválida: ${value}.`);
+  if (value === "general" || value === "opcional" || value === "media_vianda")
+    return value;
+  throw new AppError(
+    "DATABASE_ERROR",
+    `La modalidad almacenada es inválida: ${value}.`,
+  );
 }
 
 function mapOptionType(value: string): OptionType {
   if (value === "dish" || value === "menu") return value;
-  throw new AppError("DATABASE_ERROR", `El tipo de opción almacenado es inválido: ${value}.`);
+  throw new AppError(
+    "DATABASE_ERROR",
+    `El tipo de opción almacenado es inválido: ${value}.`,
+  );
 }
 
 function mapDayOfWeek(value: number): DayOfWeek {
-  if (value === 1 || value === 2 || value === 3 || value === 4 || value === 5) return value;
-  throw new AppError("DATABASE_ERROR", `El día de la semana almacenado es inválido: ${value}.`);
+  if (value === 1 || value === 2 || value === 3 || value === 4 || value === 5)
+    return value;
+  throw new AppError(
+    "DATABASE_ERROR",
+    `El día de la semana almacenado es inválido: ${value}.`,
+  );
 }
 
 function mapOrderDetail(row: OrderDetailRow): OrderDetail {
@@ -331,8 +442,10 @@ function mapOrderDetail(row: OrderDetailRow): OrderDetail {
 
   let optionName: string | null = null;
   if (wdo) {
-    if (wdo.option_type === "dish") optionName = wdo.dish_versions?.name ?? null;
-    else if (wdo.option_type === "menu") optionName = wdo.menu_versions?.name ?? null;
+    if (wdo.option_type === "dish")
+      optionName = wdo.dish_versions?.name ?? null;
+    else if (wdo.option_type === "menu")
+      optionName = wdo.menu_versions?.name ?? null;
   }
 
   return {
@@ -345,9 +458,17 @@ function mapOrderDetail(row: OrderDetailRow): OrderDetail {
     notes: row.notes,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    client: row.clients ? { name: row.clients.name, phone: row.clients.phone } : null,
-    weekDay: wd ? { id: wd.id, date: wd.date, dayOfWeek: mapDayOfWeek(wd.day_of_week) } : null,
-    week: week ? { id: week.id, startDate: week.start_date, endDate: week.end_date } : null,
-    option: wdo ? { id: wdo.id, type: mapOptionType(wdo.option_type), name: optionName } : null,
+    client: row.clients
+      ? { name: row.clients.name, phone: row.clients.phone }
+      : null,
+    weekDay: wd
+      ? { id: wd.id, date: wd.date, dayOfWeek: mapDayOfWeek(wd.day_of_week) }
+      : null,
+    week: week
+      ? { id: week.id, startDate: week.start_date, endDate: week.end_date }
+      : null,
+    option: wdo
+      ? { id: wdo.id, type: mapOptionType(wdo.option_type), name: optionName }
+      : null,
   };
 }

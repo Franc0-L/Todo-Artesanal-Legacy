@@ -47,6 +47,11 @@
   outline: 3px solid var(--primary-border);
   outline-offset: 2px;
 }
+.semanas-primary-action[aria-expanded="true"] {
+  border-color: var(--primary-border);
+  background: var(--bg-surface);
+  color: var(--primary);
+}
 
 .semanas-toolbar {
   display: flex;
