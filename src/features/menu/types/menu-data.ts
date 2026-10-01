@@ -13,6 +13,9 @@ import type { WeekOffer } from "../../semanas/types/week-offer";
  * - `orders` / `cancellations`: lo que el cliente ya respondió esta semana.
  * - `client`: la propia ficha, para saber si tiene `allowsHalfPortion`.
  * - `prices`: precio unitario efectivo por `${optionId}|${modality}`.
+ * - `closedDayIds`: días cuyo corte de horario ("fuera de horario")
+ *   ya pasó al momento de esta carga. Se recalcula en cada `reload()`;
+ *   la DB es la frontera real (trigger `enforce_client_day_cutoff`).
  */
 export interface ClientMenuData {
   week: Week;
@@ -21,6 +24,7 @@ export interface ClientMenuData {
   cancellations: Cancellation[];
   client: Client | null;
   prices: Record<string, number>;
+  closedDayIds: string[];
 }
 
 /** Clave de `ClientMenuData.prices` para una opción de oferta y modalidad. */

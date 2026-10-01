@@ -8,6 +8,7 @@ import {
   formatCurrency,
   formatDate,
   formatDateRange,
+  formatDateTime,
 } from "../../lib/formatters";
 import type { WeekStatus } from "../../types/domain";
 import type { Week } from "./types/week";
@@ -214,6 +215,9 @@ export function WeekDetailDrawer({
                           {DAY_LABELS[offerDay.weekDay.dayOfWeek]}
                         </strong>
                         <span>{formatDate(offerDay.weekDay.date)}</span>
+                        <span className="week-detail-day__cutoff">
+                          Cierra {formatDateTime(offerDay.weekDay.cutoffAt)}
+                        </span>
                       </div>
 
                       {offerDay.options.length === 0 ? (

@@ -209,6 +209,9 @@ sequenceDiagram
   lista de opciones sigue disponible, con lo ya pedido deshabilitado
   ("Ya pediste"); el botón "No quiero ese día" solo aparece si el día no
   tiene pedidos.
+- Fuera del corte de horario del día (`cutoff_at`, default 20:00 del día
+  anterior) no se aceptan respuestas de clientes: la tarjeta muestra
+  "Fuera de horario" y la DB rechaza (`BUSINESS_RULE`).
 
 ---
 
@@ -231,10 +234,11 @@ sequenceDiagram
      `menu_version_id` (el pedido igual queda atado a un día vía
      `week_day_id`).
 
-   En `/menu/:token` esto se resuelve con el botón *Media vianda del
-   catálogo*, que abre `ClientCatalogPicker` (RPC `list_client_catalog`)
+   En `/menu/:token` esto se resuelve con el botón _Media vianda del
+   catálogo_, que abre `ClientCatalogPicker` (RPC `list_client_catalog`)
    y luego el mismo compositor de cantidad/notas que la oferta. El precio
    que se muestra viene de `calculate_my_order_price`.
+
 2. El trigger `validate_order` valida `allows_half_portion` y el día.
 3. El precio se congela en `applied_price`:
 
@@ -647,6 +651,7 @@ sequenceDiagram
 | Sin semana activa         | `getActiveWeek` devuelve `null`.                                              |
 | Error de consulta         | Falló la carga de la semana. Botón "Reintentar" → `reauthenticate()`.         |
 | Semana cerrada / borrador | La semana activa no existe o está `closed`.                                   |
+| Fuera de horario (día)    | El corte del día ya pasó: banner y controles deshabilitados en esa tarjeta.   |
 
 **Invariantes:**
 

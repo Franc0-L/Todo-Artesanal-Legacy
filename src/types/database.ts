@@ -519,6 +519,7 @@ export type Database = {
       week_days: {
         Row: {
           created_at: string
+          cutoff_at: string
           date: string
           day_of_week: number
           id: string
@@ -526,6 +527,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          cutoff_at: string
           date: string
           day_of_week: number
           id?: string
@@ -533,6 +535,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          cutoff_at?: string
           date?: string
           day_of_week?: number
           id?: string

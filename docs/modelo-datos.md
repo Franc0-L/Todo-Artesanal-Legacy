@@ -149,18 +149,28 @@ de las funciones `activate_week` / `close_week`.
 
 ### `week_days`
 
-| Columna       | Tipo              | Notas                          |
-| ------------- | ----------------- | ------------------------------ |
-| `id`          | uuid PK           |                                |
-| `week_id`     | uuid FK → `weeks` | **ON DELETE CASCADE**.         |
-| `day_of_week` | smallint          | CHECK: 1..5 (lunes a viernes). |
-| `date`        | date              | Fecha concreta del día.        |
-| `created_at`  | timestamptz       |                                |
+| Columna       | Tipo              | Notas                               |
+| ------------- | ----------------- | ----------------------------------- |
+| `id`          | uuid PK           |                                     |
+| `week_id`     | uuid FK → `weeks` | **ON DELETE CASCADE**.              |
+| `day_of_week` | smallint          | CHECK: 1..5 (lunes a viernes).      |
+| `date`        | date              | Fecha concreta del día.             |
+| `cutoff_at`   | timestamptz       | NOT NULL. Corte "fuera de horario". |
+| `created_at`  | timestamptz       |                                     |
 
 **CHECK `extract(isodow from date) = day_of_week`:** la fecha debe
 corresponder al día de la semana.
 
 **UNIQUE `(week_id, day_of_week)`** y **UNIQUE `(week_id, date)`**.
+
+**`cutoff_at` ("fuera de horario"):** instante en que dejan de aceptarse
+respuestas de clientes para el día. Default **20:00 del día anterior**
+(`America/Argentina/Buenos_Aires`), completado por el trigger
+`week_days_default_cutoff` (BEFORE INSERT) y backfilleado en la
+migración. El trigger `private.enforce_client_day_cutoff()`
+(`orders_client_cutoff` / `cancellations_client_cutoff`) rechaza INSERT,
+UPDATE y DELETE de clientes después del corte; el admin queda exento.
+Ver `docs/decisiones/20261001-fuera-de-horario-cutoff-por-dia.md`.
 
 ### `week_day_options` (opciones de oferta de un día)
 
@@ -462,6 +472,14 @@ remoto y el historial está en sync. Las altas posteriores de esa fecha:
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
 | `20260929000001_catalog_media_vianda.sql`  | Media vianda desde el catálogo: `orders.week_day_id`, productos de catálogo, CHECK de fuente única, `calculate_catalog_media_vianda_price`, `validate_order` dual | ✅     |
 | `20260929000002_fix_media_vianda_text.sql` | Solo texto: repara el mojibake de los mensajes de error de la 0001 (sin cambios de lógica)                                                                        | ✅     |
+
+**Altas del 2026-10-01** (push corrido el mismo día; `migration list` en sync):
+
+| Archivo                                     | Contenido                                                                                                  | Estado |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------ |
+| `20261001000001_client_effective_price.sql` | RPC `calculate_my_order_price`: precio efectivo del cliente, identidad desde `private.current_client_id()` | ✅     |
+| `20261001000002_client_catalog.sql`         | RPC `list_client_catalog`: catálogo completo para la media vianda del cliente                              | ✅     |
+| `20261001000003_week_day_cutoff.sql`        | "Fuera de horario": `week_days.cutoff_at` NOT NULL, default 20:00 día anterior, triggers de corte clientes | ✅     |
 
 Procedimiento y verificación (dump de esquema remoto vs. local:
 estructura idéntica) en `docs/decisiones/20260927-local-fuente-de-verdad.md`.

@@ -110,6 +110,15 @@ async function loadMenuData(
     client,
   );
 
+  // "Fuera de horario" por día: cutoff ya pasado al momento de la
+  // carga. Se evalúa acá (callback) y no en el render, por la regla
+  // de pureza de React; la página programa un `reload()` al llegar
+  // cada corte para refrescarlo.
+  const now = Date.now();
+  const closedDayIds = offer.days
+    .filter((day) => Date.parse(day.weekDay.cutoffAt) <= now)
+    .map((day) => day.weekDay.id);
+
   return {
     week,
     offer,
@@ -117,6 +126,7 @@ async function loadMenuData(
     cancellations: cancellationsResult.items,
     client: clientRow,
     prices,
+    closedDayIds,
   };
 }
 

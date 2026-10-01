@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { formatCurrency, formatDate } from "../../lib/formatters";
+import { formatCurrency, formatDate, formatDateTime } from "../../lib/formatters";
 import { useConfirm } from "../../components/ui/useConfirm";
 import { DAY_LABELS } from "../semanas/day-labels";
 import {
@@ -32,6 +32,12 @@ interface ClientDayCardProps {
   allowsHalfPortion: boolean;
   clientId: string;
   client: MenuClient;
+  /**
+   * true si el corte del día (`weekDay.cutoffAt`) ya pasó al momento
+   * de la última carga (`closedDayIds` del loader, no se calcula en
+   * render por pureza). La DB es la frontera real; este flag es UX.
+   */
+  closed: boolean;
   /** Vuelve a cargar toda la semana (`reload()` del hook). */
   onChanged: () => void;
 }
@@ -53,7 +59,10 @@ type Composing =
  *  - `media_vianda` desde la oferta o desde el catálogo solo si el cliente
  *    la tiene habilitada;
  *  - no puede haber pedido y cancelación el mismo día, así que cuando hay
- *    un pedido no se ofrece cancelar, y cuando hay cancelación no se pide.
+ *    un pedido no se ofrece cancelar, y cuando hay cancelación no se pide;
+ *  - fuera de horario (después de `weekDay.cutoffAt`) el día queda en solo
+ *    lectura: la DB rechaza las respuestas del cliente y la UI oculta las
+ *    acciones ("fuera de horario", ver decisión 20261001).
  */
 export function ClientDayCard({
   day,
@@ -63,6 +72,7 @@ export function ClientDayCard({
   allowsHalfPortion,
   clientId,
   client,
+  closed: isClosed,
   onChanged,
 }: ClientDayCardProps) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -261,10 +271,23 @@ export function ClientDayCard({
         </div>
       )}
 
+      {isClosed && (
+        <div className="client-day__closed" role="status">
+          <p>
+            Fuera de horario: este día cerró el{" "}
+            {formatDateTime(day.weekDay.cutoffAt)}.
+          </p>
+        </div>
+      )}
+
       {cancellation && orders.length === 0 ? (
         <div className="client-day__cancelled">
           <p>Avisaste que no vas a recibir vianda este día.</p>
-          <button type="button" disabled={isBusy} onClick={undoCancel}>
+          <button
+            type="button"
+            disabled={isBusy || isClosed}
+            onClick={undoCancel}
+          >
             {busy === "uncancel" ? "Reactivando…" : "Volver a pedir"}
           </button>
         </div>
@@ -277,6 +300,7 @@ export function ClientDayCard({
                   key={`${order.id}:${order.updatedAt}`}
                   order={order}
                   busy={isBusy}
+                  locked={isClosed}
                   onChangeQuantity={(next) => changeQuantity(order, next)}
                   onSaveNotes={(next) => saveNotes(order, next)}
                   onRemove={() => void removeOrder(order)}
@@ -285,7 +309,7 @@ export function ClientDayCard({
             </ul>
           )}
 
-          {pickerOpen ? (
+          {pickerOpen && !isClosed ? (
             <ClientCatalogPicker
               client={client}
               onPick={handlePickCatalog}
@@ -312,6 +336,7 @@ export function ClientDayCard({
                         type="button"
                         disabled={
                           isBusy ||
+                          isClosed ||
                           composing !== null ||
                           hasOfferOrder(option, option.offerModality)
                         }
@@ -329,6 +354,7 @@ export function ClientDayCard({
                           className="client-option__half"
                           disabled={
                             isBusy ||
+                            isClosed ||
                             composing !== null ||
                             hasOfferOrder(option, "media_vianda")
                           }
@@ -344,7 +370,7 @@ export function ClientDayCard({
                 ))}
               </ul>
 
-              {composing ? (
+              {isClosed ? null : composing ? (
                 <div className="client-day__composer">
                   <p className="client-day__composer-title">{composeTitle()}</p>
                   <label className="client-day__composer-field">

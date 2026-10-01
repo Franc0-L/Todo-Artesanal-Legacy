@@ -111,9 +111,10 @@ sequenceDiagram
 - El `applied_price` **no lo envía el frontend**. El trigger lo calcula.
 - La validación de negocio (semana activa, cliente esperado, etc.) es del trigger, no del servicio.
 - El servicio solo valida **forma** (UUID válido, enumeraciones, tipos).
-- `modality` debe coincidir con el `offerModality` de la opción elegida:
-  en producción el trigger la **rechaza** si no coincide; en local la
-  **normaliza** (ver `docs/decisiones/20260926-oferta-general-opcional.md`).
+- `modality` la determina la opción elegida (`general`/`opcional`): en
+  producción el trigger la **normaliza** (`new.modality := offer_modality`)
+  y `media_vianda` se conserva (ver
+  `docs/decisiones/20260926-oferta-general-opcional.md`).
 
 ## Flujo de una operación atómica multi-tabla
 
@@ -176,6 +177,9 @@ flowchart LR
         A7[update_week]
         A8[is_user_admin]
         A9[validate_week_day_option_<br/>product_uniqueness]
+        A10[calculate_catalog_<br/>media_vianda_price]
+        A11[calculate_my_order_price]
+        A12[list_client_catalog]
     end
 
     subgraph Privadas
@@ -192,6 +196,8 @@ flowchart LR
         C6[orders_no_cancellation]
         C7[cancellations_no_order]
         C8[trg_validate_week_day_<br/>option_product_uniqueness]
+        C9[default_week_day_cutoff]
+        C10[enforce_client_day_cutoff]
     end
 
     A1 --> B1
@@ -322,8 +328,11 @@ El estado de carga/error de los listados se **deriva en el render**, no se sincr
 
 ## Pendientes de arquitectura
 
-- **UI de cliente en `/menu/:token` (hecha):** sesión, oferta de la semana activa (`getWeekOffer`/`listDayOptions` ya aceptan un cliente Supabase propio), pedidos y cancelaciones por día (`createOrder`/`updateOrder`/`deleteOrder`, `createCancellation`/`deleteCancellation`) y precio efectivo vía el RPC `calculate_my_order_price`. La media vianda **desde el catálogo** también está implementada: el RLS de cliente no expone `dishes`/`menus`, así que el catálogo entra por el RPC `list_client_catalog` (`security definer`, `20261001000002_client_catalog.sql`), que consume `ClientCatalogPicker`. Pendiente: "fuera de horario" (sin regla de dominio todavía).
+- **UI de cliente en `/menu/:token` (hecha):** sesión, oferta de la semana activa (`getWeekOffer`/`listDayOptions` ya aceptan un cliente Supabase propio), pedidos y cancelaciones por día (`createOrder`/`updateOrder`/`deleteOrder`, `createCancellation`/`deleteCancellation`) y precio efectivo vía el RPC `calculate_my_order_price`. La media vianda **desde el catálogo** también está implementada: el RLS de cliente no expone `dishes`/`menus`, así que el catálogo entra por el RPC `list_client_catalog` (`security definer`, `20261001000002_client_catalog.sql`), que consume `ClientCatalogPicker`. El "fuera de horario" está implementado con corte por día (`week_days.cutoff_at`, decisión `20261001`): banner + acciones deshabilitadas en `ClientDayCard`, editor por día en `WeekWorkspace`.
 - **Reconciliación de migraciones:** el historial local y remoto divergía (4 migraciones solo en local, 4 solo en remoto). **Decisión: gana el repo local.** Hecho el 2026-09-27: las 4 remotas se inspeccionaron (contenido equivalente a archivos locales) y se marcaron `reverted`; la consolidación `20260927000001` fija el estado final. **Resuelto (2026-09-29):** se corrió `npx supabase db push --include-all` y local y remoto quedaron en sync (se sumaron `20260929000001` y `20260929000002`). Ver `docs/decisiones/20260927-local-fuente-de-verdad.md`.
-- **Realtime:** Supabase Realtime no está configurado. Cuando se agregue la UI de cliente, definir qué tablas se suscriben.
+- **Realtime:** Supabase Realtime no se usa: la UI de cliente ya existe
+  (`/menu/:token`) y refresca por `reload()` (incluido el auto-`reload()`
+  al llegar cada corte de horario). Si algún día hace falta push real,
+  definir qué tablas se suscriben.
 - **Vistas o RPC de reportes:** varios servicios calculan agregados en cliente (dish-usage, order totals, historical weeks, dashboard). Migrar a vistas o RPC si el volumen crece.
 - **Revocación inmediata de JWT:** hoy un JWT emitido sigue válido hasta 1 h aunque el admin rote el link.

@@ -18,6 +18,7 @@ import {
   getWeekOffer,
   removeDayOption,
 } from "./services/week-offer.service";
+import { updateWeekDayCutoff } from "./services/week-days.service";
 import { getExpectedClientCount } from "./services/week-expected-clients.service";
 import { listDishes } from "../platos/services/dishes.service";
 import { listDishVersions } from "../platos/services/dish-versions.service";
@@ -37,6 +38,8 @@ import {
   formatCurrency,
   formatDate,
   formatDateRange,
+  formatDateTime,
+  toDateTimeLocalValue,
 } from "../../lib/formatters";
 import { useConfirm } from "../../components/ui/useConfirm";
 import { isAppError } from "../../lib/errors";
@@ -1053,6 +1056,16 @@ function DayOfferColumn({
   const [resolvingId, setResolvingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
+  // Corte de horario del día ("fuera de horario"): el draft vive en
+  // este componente y se guarda con el botón; tras el guardado
+  // `onChanged()` recarga la oferta y el valor del props se actualiza,
+  // con lo cual el draft deja de estar "dirty".
+  const [cutoffDraft, setCutoffDraft] = useState(() =>
+    toDateTimeLocalValue(day.cutoffAt),
+  );
+  const [cutoffSaving, setCutoffSaving] = useState(false);
+  const [cutoffError, setCutoffError] = useState<string | null>(null);
+  const cutoffDirty = cutoffDraft !== toDateTimeLocalValue(day.cutoffAt);
   const debounceRef = useRef<number | null>(null);
 
   // El estado del buscador (`searchLoading`/`searchError`) se marca desde los
@@ -1207,11 +1220,63 @@ function DayOfferColumn({
     }
   }
 
+  async function handleSaveCutoff() {
+    if (Number.isNaN(Date.parse(cutoffDraft))) {
+      setCutoffError("Elegí la fecha y hora hasta las que se aceptan respuestas.");
+      return;
+    }
+
+    setCutoffSaving(true);
+    setCutoffError(null);
+    try {
+      await updateWeekDayCutoff(day.id, new Date(cutoffDraft).toISOString());
+      onChanged();
+    } catch (saveErr: unknown) {
+      setCutoffError(
+        saveErr instanceof Error
+          ? saveErr.message
+          : "No se pudo guardar el corte.",
+      );
+    } finally {
+      setCutoffSaving(false);
+    }
+  }
+
   return (
     <div className="week-day-column">
       <header className="week-day-column__header">
         <strong>{DAY_LABELS[day.dayOfWeek]}</strong>
         <span>{formatDate(day.date)}</span>
+
+        {editable ? (
+          <div className="week-day-column__cutoff">
+            <label>
+              <span>Cierra (día y hora)</span>
+              <input
+                type="datetime-local"
+                value={cutoffDraft}
+                disabled={cutoffSaving}
+                onChange={(event) => setCutoffDraft(event.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={!cutoffDirty || cutoffSaving}
+              onClick={() => void handleSaveCutoff()}
+            >
+              {cutoffSaving ? "Guardando…" : "Guardar corte"}
+            </button>
+            {cutoffError && (
+              <p className="week-day-column__hint week-day-column__hint--error">
+                {cutoffError}
+              </p>
+            )}
+          </div>
+        ) : (
+          <span className="week-day-column__cutoff-readonly">
+            Cierra {formatDateTime(day.cutoffAt)}
+          </span>
+        )}
       </header>
 
       <ul className="week-day-column__options">

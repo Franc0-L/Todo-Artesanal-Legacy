@@ -28,6 +28,10 @@ Elección concreta de un cliente para una semana y un día. Registra cliente, op
 
 Hecho operativo que indica que un cliente no va a recibir vianda un día concreto. Cuenta como "respuesta" del cliente.
 
+### Corte de horario
+
+Instante en que dejan de aceptarse respuestas de clientes para un día (`week_days.cutoff_at`). Default: 20:00 del día anterior (hora Argentina). Después del corte el cliente queda en solo lectura ("fuera de horario"); el admin nunca se ve bloqueado.
+
 ### Historial
 
 Conjunto de hechos del pasado. Conserva su significado original aunque los datos actuales cambien.

@@ -6,6 +6,8 @@ import type { OrderDetail } from "../pedidos/types/order-detail";
 interface ClientOrderLineProps {
   order: OrderDetail;
   busy: boolean;
+  /** true = día fuera de horario: la línea queda en solo lectura. */
+  locked: boolean;
   onChangeQuantity: (quantity: number) => void;
   onSaveNotes: (notes: string | null) => void;
   onRemove: () => void;
@@ -22,6 +24,7 @@ interface ClientOrderLineProps {
 export function ClientOrderLine({
   order,
   busy,
+  locked,
   onChangeQuantity,
   onSaveNotes,
   onRemove,
@@ -47,7 +50,7 @@ export function ClientOrderLine({
             <button
               type="button"
               aria-label="Quitar una unidad"
-              disabled={busy || order.quantity <= 1}
+              disabled={busy || locked || order.quantity <= 1}
               onClick={() => onChangeQuantity(order.quantity - 1)}
             >
               −
@@ -56,7 +59,7 @@ export function ClientOrderLine({
             <button
               type="button"
               aria-label="Agregar una unidad"
-              disabled={busy}
+              disabled={busy || locked}
               onClick={() => onChangeQuantity(order.quantity + 1)}
             >
               +
@@ -75,12 +78,13 @@ export function ClientOrderLine({
           <input
             type="text"
             value={notes}
+            disabled={locked}
             maxLength={200}
             placeholder="Sin cebolla, porción grande…"
             onChange={(event) => setNotes(event.target.value)}
           />
         </label>
-        {notesDirty && (
+        {notesDirty && !locked && (
           <button
             type="button"
             className="client-order-line__save"
@@ -95,7 +99,7 @@ export function ClientOrderLine({
       <button
         type="button"
         className="client-order-line__remove"
-        disabled={busy}
+        disabled={busy || locked}
         onClick={onRemove}
       >
         Quitar pedido

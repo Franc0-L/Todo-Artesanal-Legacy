@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { formatDateRange } from "../../lib/formatters";
 import { ClientDayCard } from "./ClientDayCard";
@@ -6,6 +7,9 @@ import { useClientWeekData } from "./useClientWeekData";
 import type { ClientMenuData } from "./types/menu-data";
 import type { MenuClient } from "./types/client-session";
 import "./menu.css";
+
+/** Límite de `setTimeout` (~24,8 días): cortes de semana activa siempre entran. */
+const MAX_CUTOFF_TIMER_MS = 2_147_483_647;
 
 /**
  * Menú personal del cliente (`/menu/:token`).
@@ -31,6 +35,22 @@ export function ClientMenuPage() {
     clientId,
     sessionId,
   );
+
+  // Al llegar el corte de un día ("fuera de horario"), recarga la
+  // semana para mostrar el estado nuevo sin esperar una interacción.
+  // El timer solo programa `reload()` dentro de su callback; nunca se
+  // fija estado sincrónicamente en el cuerpo del efecto.
+  useEffect(() => {
+    if (!data) return;
+    const timers = data.offer.days
+      .map((day) => {
+        const ms = Date.parse(day.weekDay.cutoffAt) - Date.now();
+        if (ms <= 0 || ms > MAX_CUTOFF_TIMER_MS) return null;
+        return window.setTimeout(() => reload(), ms);
+      })
+      .filter((timer): timer is number => timer !== null);
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [data, reload]);
 
   return (
     <section className="client-menu" aria-labelledby="client-menu-title">
@@ -125,6 +145,7 @@ interface ActiveWeekProps {
 function ActiveWeek({ data, client, clientId, onChanged }: ActiveWeekProps) {
   const { week, offer, orders, cancellations, prices, client: clientRow } = data;
   const allowsHalfPortion = clientRow?.allowsHalfPortion ?? false;
+  const closedDayIds = new Set(data.closedDayIds);
 
   return (
     <article className="client-menu__week" aria-labelledby="client-week-title">
@@ -153,6 +174,7 @@ function ActiveWeek({ data, client, clientId, onChanged }: ActiveWeekProps) {
             allowsHalfPortion={allowsHalfPortion}
             clientId={clientId}
             client={client}
+            closed={closedDayIds.has(day.weekDay.id)}
             onChanged={onChanged}
           />
         ))}

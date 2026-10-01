@@ -185,6 +185,22 @@
   margin: 0;
 }
 
+/* "Fuera de horario": el día cerró sus respuestas y queda en solo
+   lectura (banner informativo, no un error). */
+.client-day__closed {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-subtle);
+  color: var(--text-soft);
+  font-size: 0.875rem;
+}
+
+.client-day__closed p {
+  margin: 0;
+}
+
 .client-day__options {
   display: grid;
   gap: 10px;

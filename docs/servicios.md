@@ -171,12 +171,13 @@ No existen `updateDishVersion` ni `deleteDishVersion`: las versiones son inmutab
 
 ### `week-days.service.ts`
 
-| Función        | Firma                            | Descripción                         |
-| -------------- | -------------------------------- | ----------------------------------- |
-| `listWeekDays` | `(weekId) → Promise<WeekDay[]>`  | 5 días ordenados por `day_of_week`. |
-| `getWeekDay`   | `(weekDayId) → Promise<WeekDay>` | Un día.                             |
+| Función               | Firma                                   | Descripción                                                                                           |
+| --------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `listWeekDays`        | `(weekId) → Promise<WeekDay[]>`         | 5 días ordenados por `day_of_week` (incluye `cutoffAt`).                                              |
+| `getWeekDay`          | `(weekDayId) → Promise<WeekDay>`        | Un día.                                                                                               |
+| `updateWeekDayCutoff` | `(weekDayId, cutoffAt) → Promise<void>` | Mueve el corte de horario del día (ISO con offset). Permitido hasta `closed` (trigger de protección). |
 
-No existen `createWeekDay` / `updateWeekDay` / `deleteWeekDay`. Los días solo se manejan vía `create_week` y `update_week`.
+No existen `createWeekDay` / `deleteWeekDay`. Los días se **crean** solo vía `create_week` y `update_week`; la única edición es `updateWeekDayCutoff` (configuración del corte, sin recrear días ni tocar opciones).
 
 ### `week-offer.service.ts`
 
@@ -284,31 +285,31 @@ No usa `setSession`: el JWT ES256 no tiene usuario GoTrue ni refresh token. El c
 
 ### `menu-pricing.service.ts`
 
-| Función             | Firma                                                                                 | Descripción                                                                                                                                                                                                                                    |
-| ------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `getEffectivePrice` | `(input: EffectivePriceInput, client?) → Promise<number>`                              | `EffectivePriceInput = { weekDayOptionId?, dishVersionId?, menuVersionId?, modality }`. Llama al RPC `calculate_my_order_price`, que exige **exactamente una** fuente de producto y resuelve la identidad con `private.current_client_id()`. **Solo UX**: el precio definitivo lo congela `validate_order`. |
+| Función             | Firma                                                     | Descripción                                                                                                                                                                                                                                                                                                 |
+| ------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getEffectivePrice` | `(input: EffectivePriceInput, client?) → Promise<number>` | `EffectivePriceInput = { weekDayOptionId?, dishVersionId?, menuVersionId?, modality }`. Llama al RPC `calculate_my_order_price`, que exige **exactamente una** fuente de producto y resuelve la identidad con `private.current_client_id()`. **Solo UX**: el precio definitivo lo congela `validate_order`. |
 
 ### `menu-catalog.service.ts`
 
-| Función            | Firma                                     | Descripción                                                                                                                                                                                                                                        |
-| ------------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `listClientCatalog` | `(client?) → Promise<CatalogItem[]>`      | Catálogo activo para la media vianda libre. RPC `list_client_catalog` (`security definer`): el RLS de cliente no expone `dishes` / `menus`, así que esa es la única vía. `CatalogItem = { type: 'dish' \| 'menu', productId, versionId, name }`. **No** trae precios. |
+| Función             | Firma                                | Descripción                                                                                                                                                                                                                                                           |
+| ------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listClientCatalog` | `(client?) → Promise<CatalogItem[]>` | Catálogo activo para la media vianda libre. RPC `list_client_catalog` (`security definer`): el RLS de cliente no expone `dishes` / `menus`, así que esa es la única vía. `CatalogItem = { type: 'dish' \| 'menu', productId, versionId, name }`. **No** trae precios. |
 
 ---
 
 ## RPCs invocados por servicios
 
-| RPC                   | Servicio                | Devuelve  |
-| --------------------- | ----------------------- | --------- |
-| `create_menu`         | `menus.service`         | `uuid`    |
-| `create_menu_version` | `menu-versions.service` | `uuid`    |
-| `create_week`         | `weeks.service`         | `uuid`    |
-| `update_week`         | `weeks.service`         | `void`    |
-| `activate_week`       | `weeks.service`         | `void`    |
-| `close_week`          | `weeks.service`         | `void`    |
-| `is_user_admin`       | `auth.service`          | `boolean` |
-| `calculate_my_order_price` | `menu-pricing.service` | `numeric` |
-| `list_client_catalog`      | `menu-catalog.service`  | filas    |
+| RPC                        | Servicio                | Devuelve  |
+| -------------------------- | ----------------------- | --------- |
+| `create_menu`              | `menus.service`         | `uuid`    |
+| `create_menu_version`      | `menu-versions.service` | `uuid`    |
+| `create_week`              | `weeks.service`         | `uuid`    |
+| `update_week`              | `weeks.service`         | `void`    |
+| `activate_week`            | `weeks.service`         | `void`    |
+| `close_week`               | `weeks.service`         | `void`    |
+| `is_user_admin`            | `auth.service`          | `boolean` |
+| `calculate_my_order_price` | `menu-pricing.service`  | `numeric` |
+| `list_client_catalog`      | `menu-catalog.service`  | filas     |
 
 ---
 
@@ -333,5 +334,6 @@ No usa `setSession`: el JWT ES256 no tiene usuario GoTrue ni refresh token. El c
 - **Vistas o RPC de reportes:** varios servicios calculan agregados en
   cliente (`dish-usage`, `order-totals`, `history`, `historical-week-detail`
   pagina de a 20). Migrar a vistas o RPC si el volumen crece.
-- **Realtime:** sin suscripciones configuradas. Cuando se agregue UI
-  cliente, definir tablas a suscribir.
+- **Realtime:** no se usa. La UI de cliente ya existe (`/menu/:token`) y
+  refresca por `reload()`. Si algún día hace falta push real, definir
+  tablas a suscribir.

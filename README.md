@@ -28,7 +28,8 @@ arman su pedido de la semana activa.
 - ✅ **Fases 1–4** — Dominio, modelo conceptual, modelo PostgreSQL, RLS, funciones y triggers.
 - ✅ **Fase 5** — Migraciones, tipos, servicios y las dos Edge Functions (`rotate-client-token`, `authenticate-client-token`).
 - ✅ **Fase 6** — UI de admin completa (`/admin`) y UI de cliente en `/menu/:token` (oferta, pedidos, cancelaciones y media vianda del catálogo).
-- ⏳ **Pendiente** — tests de invariantes, ADRs `004`/`005`, Realtime, "fuera de horario".
+- ⏳ **Pendiente** — tests de invariantes, verificación del camino de éxito
+  del JWT con un enlace real (la UI ya lo consume), reportes.
 
 Ver `docs/estado-fases-1-5.md` para el estado consolidado completo
 (incluida la **reconciliación de migraciones**) y `docs/README.md` para
@@ -335,9 +336,10 @@ Ver `docs/flujos.md` para el detalle de cada paso.
 - [x] Media vianda desde el catálogo para el cliente (RPC
       `list_client_catalog` + `ClientCatalogPicker`)
 - [ ] Tests de invariantes contra la DB real
-- [ ] ADRs `004` (`jwt-custom-para-clientes`) y `005`
-      (`semana-no-pertenece-a-cliente`) — `002` y `003` ya escritos
-- [ ] Supabase Realtime para el panel admin
+- [x] ADRs `001`–`005` escritos (`versionado-inmutable`,
+      `media-vianda-es-modalidad`, `precio-congelado-en-pedido`,
+      `jwt-custom-para-clientes`, `semana-no-pertenece-a-cliente`)
+- [ ] Realtime: descartado por ahora (la UI refresca por `reload()`)
 
 ### Descartado por ahora
 

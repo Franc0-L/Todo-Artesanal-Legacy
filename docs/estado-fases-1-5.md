@@ -159,8 +159,8 @@ Extensión propuesta y aprobada de las invariantes de §36:
 
 ## Pedido
 
-- `pedido = cliente + opción de día + modalidad + cantidad + precio aplicado`
-- `pedido = una única selección por cliente + opción + modalidad`
+- `pedido = cliente + semana + día + opción de oferta o producto de catálogo (solo media vianda) + modalidad + cantidad + precio aplicado`
+- `varios pedidos por día = permitidos salvo idénticos (mismo cliente + opción/producto + modalidad)`
 - `quantity = unidades`
 - `applied_price = unitario`
 - `pedido histórico = independiente de cambios posteriores`
@@ -244,8 +244,10 @@ Extensión propuesta y aprobada de las invariantes de §36:
 - `orders.applied_price = unitario`
 - `orders.quantity = entero positivo`
 - `pedido.total = quantity × applied_price`
-- `UNIQUE = (client_id, week_day_option_id, modality)`
+- `UNIQUE parcial = (client_id, week_day_option_id, modality) donde hay opción de oferta; (client_id, week_day_id, dish_version_id / menu_version_id, modality) para media vianda de catálogo`
 - `order.notes = nota específica del pedido`
+
+> Nota: la unicidad es por combinación idéntica (cliente + opción/producto + modalidad), no "una única selección" por día: un día admite varios pedidos distintos.
 
 ## Cancelaciones
 
@@ -651,7 +653,8 @@ agregaba el push y quedó aplicada el 2026-09-29.
 
 - `weeks.service.ts`: listWeeks, getWeek, getActiveWeek(client?), createWeek (RPC create_week), updateWeek (RPC update_week), activateWeek (RPC activate_week), closeWeek (RPC close_week).
   - `getActiveWeek(client = supabase)` acepta un cliente Supabase propio: se usa igual desde admin (JWT de Auth) y desde `/menu/:token` (JWT ES256 de cliente). RLS decide qué filas ve.
-- `week-days.service.ts`: listWeekDays, getWeekDay.
+- `week-days.service.ts`: listWeekDays, getWeekDay, updateWeekDayCutoff (única
+  edición de días: el corte de horario; no recrea días ni toca opciones).
 - `week-offer.service.ts`: listDayOptions, getWeekOffer, addDayOption, updateDayOption, removeDayOption.
   - `addDayOption` / `updateDayOption` aceptan `offerModality: 'general' | 'opcional'` (`AddDayOptionInput` discrimina por `optionType`).
 - `week-expected-clients.service.ts`: getExpectedClients, getExpectedClientCount.
@@ -795,10 +798,23 @@ agregaba el push y quedó aplicada el 2026-09-29.
 - Estados de la UI: sin semana activa, cargando, error de sesión y error de
   consulta; estados vacíos con `EmptyState`.
 
-### Pendiente
+### "Fuera de horario" ✅ (hecho: corte por día, 2026-10-01)
 
-- **"Fuera de horario"**: no existe como regla de dominio (haría falta, por
-  ejemplo, un horario de cierre en `weeks`).
+- **Regla:** cada día cierra por su cuenta con `week_days.cutoff_at`
+  (default 20:00 del día anterior, `America/Argentina/Buenos_Aires`).
+  Después del corte el cliente no responde —ni pedidos ni
+  cancelaciones—; el admin no se ve afectado. Ver
+  `docs/decisiones/20261001-fuera-de-horario-cutoff-por-dia.md`.
+- Migración `20261001000003_week_day_cutoff.sql`: columna + backfill +
+  default por trigger (`week_days_default_cutoff`) +
+  `private.enforce_client_day_cutoff()` sobre `orders` y `cancellations`
+  (INSERT/UPDATE/DELETE). Validada con `db reset` (20/20) + smoke test
+  en local; aplicada en remoto (push del 2026-10-01).
+- UI: banner "Fuera de horario" + acciones deshabilitadas en
+  `ClientDayCard` (`closedDayIds` se calcula al cargar en
+  `useClientWeekData`; `ClientMenuPage` programa un `reload()` al
+  llegar cada corte); editor por día en `WeekWorkspace` y lectura en
+  `WeekDetailDrawer` (servicio `updateWeekDayCutoff`).
 
 ---
 
@@ -833,7 +849,7 @@ agregaba el push y quedó aplicada el 2026-09-29.
 ## 3. UI de cliente (oferta + pedidos) ✅ (hecha)
 
 - Ver "Fase 6 → Hecho — UI de cliente" (incluye la media vianda desde el
-  catálogo). Pendiente: "fuera de horario".
+  catálogo y el "fuera de horario" con corte por día).
 
 ## 4. Reportes
 
@@ -845,10 +861,9 @@ agregaba el push y quedó aplicada el 2026-09-29.
 
 ## 6. Documentación
 
-- `docs/adr/002-media-vianda-es-modalidad.md`,
-  `003-precio-congelado-en-pedido.md`, `004-jwt-custom-para-clientes.md`,
-  `005-semana-no-pertenece-a-cliente.md` → archivos **vacíos**, sin redactar.
-  (El ADR `001-versionado-inmutable.md` está escrito.)
+- `001`–`005` escritos (`versionado-inmutable`, `media-vianda-es-modalidad`,
+  `precio-congelado-en-pedido`, `jwt-custom-para-clientes`,
+  `semana-no-pertenece-a-cliente`).
 - `docs/prompt.md` se conserva como contrato original; no se actualiza.
 
 ---
@@ -1093,6 +1108,21 @@ agregaba el push y quedó aplicada el 2026-09-29.
 - Concedido **solo a `authenticated`**. No devuelve precios: eso lo hace
   `calculate_my_order_price`.
 - **Aplicada en remoto** (push del 2026-10-01).
+
+## 20261001000003_week_day_cutoff.sql
+
+- **"Fuera de horario" con corte por día.**
+- `week_days.cutoff_at timestamptz NOT NULL` + backfill (20:00 del día
+  anterior, `America/Argentina/Buenos_Aires`).
+- Trigger `week_days_default_cutoff` (BEFORE INSERT) completa el default
+  en `create_week` / `update_week`.
+- `private.enforce_client_day_cutoff()` + `orders_client_cutoff` /
+  `cancellations_client_cutoff` (BEFORE INSERT OR UPDATE OR DELETE):
+  rechaza al cliente cuando `now() > cutoff_at`; admin exento
+  (`private.current_client_id()` nulo).
+- Decisión: `docs/decisiones/20261001-fuera-de-horario-cutoff-por-dia.md`.
+- **Aplicada en local (`db reset` 20/20 + smoke test) y en remoto**
+  (push del 2026-10-01).
 
 ---
 

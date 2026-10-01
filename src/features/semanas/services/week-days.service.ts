@@ -8,14 +8,17 @@ import type { WeekDay } from "../types/week-day";
 
 type WeekDayRow = Tables<"week_days">;
 
-const WEEK_DAY_COLUMNS = "id,week_id,day_of_week,date,created_at";
+const WEEK_DAY_COLUMNS = "id,week_id,day_of_week,date,cutoff_at,created_at";
 
 /**
- * No existe createWeekDay / updateWeekDay / deleteWeekDay.
+ * Los días de una semana se CREAN exclusivamente a través de los RPC
+ * create_week y update_week (el admin configura la oferta, no los días).
  *
- * Los días de una semana se manejan exclusivamente a través de
- * los RPC create_week y update_week. El admin opera sobre las
- * opciones de oferta, no sobre los días en sí.
+ * La única edición permitida es `updateWeekDayCutoff`: mover el corte
+ * de horario es configuración operativa, no estructural — no recrea
+ * días ni toca opciones, y el admin puede hacerlo incluso con la
+ * semana activa. En semanas cerradas lo rechaza el trigger de
+ * protección (`week_days_closed_protection`).
  */
 export async function listWeekDays(
   weekId: string,
@@ -51,6 +54,37 @@ export async function getWeekDay(
   return mapWeekDay(row);
 }
 
+/**
+ * Actualiza el corte de horario (`cutoff_at`) de un día.
+ *
+ * Única edición de días desde el frontend: no recrea la semana ni
+ * cascadea opciones. `cutoffAt` es un ISO con offset (acepta también
+ * el valor de un input `datetime-local`, que se interpreta en hora
+ * local). En semanas cerradas el trigger de protección rechaza con
+ * BUSINESS_RULE.
+ */
+export async function updateWeekDayCutoff(
+  weekDayId: string,
+  cutoffAt: string,
+): Promise<void> {
+  validateUuid(weekDayId, "weekDayId");
+  if (Number.isNaN(Date.parse(cutoffAt))) {
+    throw new AppError(
+      "VALIDATION_ERROR",
+      "La fecha y hora de corte son obligatorias.",
+    );
+  }
+
+  await runSupabaseOrThrow<Pick<WeekDayRow, "id">>(() =>
+    supabase
+      .from("week_days")
+      .update({ cutoff_at: cutoffAt })
+      .eq("id", weekDayId)
+      .select("id")
+      .single(),
+  );
+}
+
 function validateUuid(value: string, fieldName: string): void {
   if (
     typeof value !== "string" ||
@@ -82,6 +116,7 @@ function mapWeekDay(row: WeekDayRow): WeekDay {
     weekId: row.week_id,
     dayOfWeek: mapDayOfWeek(row.day_of_week),
     date: row.date,
+    cutoffAt: row.cutoff_at,
     createdAt: row.created_at,
   };
 }

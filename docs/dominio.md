@@ -96,6 +96,10 @@ cliente + semana + día + opción de oferta + modalidad + cantidad + precio apli
 - Un cliente no puede tener dos pedidos idénticos (mismo cliente +
   opción + modalidad). Para más cantidad: `quantity`.
 - Un cliente no puede tener pedido y cancelación el mismo día.
+- Fuera del corte de horario del día (`week_days.cutoff_at`, default
+  20:00 del día anterior) el cliente no responde: ni pedidos ni
+  cancelaciones. El admin no se ve afectado. Ver
+  `decisiones/20261001-fuera-de-horario-cutoff-por-dia.md`.
 - Los pedidos de una semana `closed` no se modifican ni se borran.
 
 ## Cancelación
