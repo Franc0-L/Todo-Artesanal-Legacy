@@ -1,6 +1,8 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../../../lib/supabase";
 import { runSupabase, runSupabaseOrThrow } from "../../../lib/error-handler";
 import { AppError } from "../../../lib/errors";
+import type { Database } from "../../../types/database";
 import type { OptionType } from "../../../types/domain";
 import type { DishVersion } from "../../platos/types/dish-version";
 import type { MenuVersionSummary } from "../../menus/types/menu-version";
@@ -38,21 +40,40 @@ const WEEK_DAY_OPTION_WITH_REFS_SELECT = `
   menu_versions ( id, menu_id, version_number, name, price, created_at )
 `;
 
-export async function listDayOptions(weekDayId: string): Promise<WeekDayOption[]> {
+/**
+ * Lista las opciones (General / Opcional) de un día.
+ *
+ * `client` permite reutilizar la consulta desde `/menu/:token` con el
+ * JWT de cliente: la policy `week_day_options_client_select_active` ya
+ * limita al cliente a la oferta de la semana activa.
+ */
+export async function listDayOptions(
+  weekDayId: string,
+  client: SupabaseClient<Database> = supabase,
+): Promise<WeekDayOption[]> {
   validateUuid(weekDayId, "weekDayId");
   const result = await runSupabase<WeekDayOptionWithRefs[]>(() =>
-    supabase.from("week_day_options").select(WEEK_DAY_OPTION_WITH_REFS_SELECT).eq("week_day_id", weekDayId),
+    client.from("week_day_options").select(WEEK_DAY_OPTION_WITH_REFS_SELECT).eq("week_day_id", weekDayId),
   );
   return (result ?? []).map(mapWeekDayOption);
 }
 
-export async function getWeekOffer(weekId: string): Promise<WeekOffer> {
+/**
+ * Devuelve la oferta completa de una semana (todos los días con sus
+ * opciones). Igual que `getActiveWeek`, acepta un cliente Supabase propio
+ * para poder correr desde el área de cliente (`/menu/:token`); RLS es
+ * quien decide qué filas ve cada rol.
+ */
+export async function getWeekOffer(
+  weekId: string,
+  client: SupabaseClient<Database> = supabase,
+): Promise<WeekOffer> {
   validateUuid(weekId, "weekId");
-  const days = await listWeekDays(weekId);
+  const days = await listWeekDays(weekId, client);
   if (days.length === 0) return { weekId, days: [] };
 
   const optionsResult = await runSupabase<WeekDayOptionWithRefs[]>(() =>
-    supabase.from("week_day_options").select(WEEK_DAY_OPTION_WITH_REFS_SELECT).in("week_day_id", days.map((d) => d.id)),
+    client.from("week_day_options").select(WEEK_DAY_OPTION_WITH_REFS_SELECT).in("week_day_id", days.map((d) => d.id)),
   );
 
   const optionsByDay = new Map<string, WeekDayOption[]>();

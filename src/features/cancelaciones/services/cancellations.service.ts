@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../../../lib/supabase";
 import {
   runSupabase,
@@ -5,6 +6,7 @@ import {
   runSupabaseOrThrow,
 } from "../../../lib/error-handler";
 import { AppError } from "../../../lib/errors";
+import type { Database } from "../../../types/database";
 import type { DayOfWeek } from "../../../types/domain";
 import type {
   Cancellation,
@@ -64,6 +66,7 @@ interface CancellationRow {
 
 export async function listCancellations(
   params: CancellationListParams = {},
+  client: SupabaseClient<Database> = supabase,
 ): Promise<CancellationListResult> {
   const page = normalizePage(params.page);
   const pageSize = normalizePageSize(params.pageSize);
@@ -71,7 +74,7 @@ export async function listCancellations(
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  let query = supabase
+  let query = client
     .from("cancellations")
     .select(CANCELLATION_SELECT, { count: "exact" })
     .order("created_at", { ascending: false })
@@ -106,11 +109,12 @@ export async function listCancellations(
 
 export async function getCancellation(
   cancellationId: string,
+  client: SupabaseClient<Database> = supabase,
 ): Promise<Cancellation> {
   validateUuid(cancellationId, "cancellationId");
 
   const row = await runSupabaseOrThrow<CancellationRow>(() =>
-    supabase
+    client
       .from("cancellations")
       .select(CANCELLATION_SELECT)
       .eq("id", cancellationId)
@@ -133,11 +137,12 @@ export async function getCancellation(
  */
 export async function createCancellation(
   input: CreateCancellationInput,
+  client: SupabaseClient<Database> = supabase,
 ): Promise<Cancellation> {
   const payload = validateCreateCancellationInput(input);
 
   const row = await runSupabaseOrThrow<CancellationRow>(() =>
-    supabase
+    client
       .from("cancellations")
       .insert(payload)
       .select(CANCELLATION_SELECT)
@@ -158,11 +163,12 @@ export async function createCancellation(
  */
 export async function deleteCancellation(
   cancellationId: string,
+  client: SupabaseClient<Database> = supabase,
 ): Promise<void> {
   validateUuid(cancellationId, "cancellationId");
 
   await runSupabase<unknown>(() =>
-    supabase.from("cancellations").delete().eq("id", cancellationId),
+    client.from("cancellations").delete().eq("id", cancellationId),
   );
 }
 

@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../../../lib/supabase";
 import {
   runSupabase,
@@ -5,6 +6,7 @@ import {
   runSupabaseOrThrow,
 } from "../../../lib/error-handler";
 import { AppError } from "../../../lib/errors";
+import type { Database } from "../../../types/database";
 import type { DayOfWeek, Modality, OptionType } from "../../../types/domain";
 import type { CreateOrderInput, UpdateOrderInput } from "../types/order";
 import type { OrderDetail } from "../types/order-detail";
@@ -101,13 +103,14 @@ interface OrderTotalsRow {
 
 export async function listOrders(
   params: OrderListParams = {},
+  client: SupabaseClient<Database> = supabase,
 ): Promise<OrderListResult> {
   const page = normalizePage(params.page);
   const pageSize = normalizePageSize(params.pageSize);
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  let query = supabase
+  let query = client
     .from("orders")
     .select(ORDER_DETAIL_SELECT, { count: "exact" })
     .order("created_at", { ascending: false })
@@ -152,12 +155,16 @@ export async function listOrders(
  */
 export async function listAllOrders(
   params: Omit<OrderListParams, "page" | "pageSize"> = {},
+  client: SupabaseClient<Database> = supabase,
 ): Promise<{ items: OrderDetail[]; total: number }> {
-  const firstPage = await listOrders({
-    ...params,
-    page: 1,
-    pageSize: ALL_PAGE_SIZE,
-  });
+  const firstPage = await listOrders(
+    {
+      ...params,
+      page: 1,
+      pageSize: ALL_PAGE_SIZE,
+    },
+    client,
+  );
   const totalPages = Math.ceil(firstPage.total / ALL_PAGE_SIZE);
 
   if (totalPages <= 1) {
@@ -166,7 +173,7 @@ export async function listAllOrders(
 
   const remainingPages = await Promise.all(
     Array.from({ length: totalPages - 1 }, (_, index) =>
-      listOrders({ ...params, page: index + 2, pageSize: ALL_PAGE_SIZE }),
+      listOrders({ ...params, page: index + 2, pageSize: ALL_PAGE_SIZE }, client),
     ),
   );
 
@@ -179,10 +186,13 @@ export async function listAllOrders(
   };
 }
 
-export async function getOrder(orderId: string): Promise<OrderDetail> {
+export async function getOrder(
+  orderId: string,
+  client: SupabaseClient<Database> = supabase,
+): Promise<OrderDetail> {
   validateUuid(orderId, "orderId");
   const row = await runSupabaseOrThrow<OrderDetailRow>(() =>
-    supabase
+    client
       .from("orders")
       .select(ORDER_DETAIL_SELECT)
       .eq("id", orderId)
@@ -193,10 +203,11 @@ export async function getOrder(orderId: string): Promise<OrderDetail> {
 
 export async function createOrder(
   input: CreateOrderInput,
+  client: SupabaseClient<Database> = supabase,
 ): Promise<OrderDetail> {
   const payload = validateCreateOrderInput(input);
   const row = await runSupabaseOrThrow<OrderDetailRow>(() =>
-    supabase
+    client
       .from("orders")
       .insert(payload)
       .select(ORDER_DETAIL_SELECT)
@@ -208,6 +219,7 @@ export async function createOrder(
 export async function updateOrder(
   orderId: string,
   input: UpdateOrderInput,
+  client: SupabaseClient<Database> = supabase,
 ): Promise<OrderDetail> {
   validateUuid(orderId, "orderId");
   const payload = validateUpdateOrderInput(input);
@@ -220,7 +232,7 @@ export async function updateOrder(
   }
 
   const row = await runSupabaseOrThrow<OrderDetailRow>(() =>
-    supabase
+    client
       .from("orders")
       .update(payload)
       .eq("id", orderId)
@@ -230,17 +242,21 @@ export async function updateOrder(
   return mapOrderDetail(row);
 }
 
-export async function deleteOrder(orderId: string): Promise<void> {
+export async function deleteOrder(
+  orderId: string,
+  client: SupabaseClient<Database> = supabase,
+): Promise<void> {
   validateUuid(orderId, "orderId");
   await runSupabase<unknown>(() =>
-    supabase.from("orders").delete().eq("id", orderId),
+    client.from("orders").delete().eq("id", orderId),
   );
 }
 
 export async function getOrderTotals(
   params: OrderTotalsParams = {},
+  client: SupabaseClient<Database> = supabase,
 ): Promise<OrderTotals> {
-  let query = supabase
+  let query = client
     .from("orders")
     .select(ORDER_TOTALS_SELECT, { count: "exact" });
 

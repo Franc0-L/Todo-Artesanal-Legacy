@@ -309,9 +309,12 @@ No usa `setSession`: el JWT ES256 no tiene usuario GoTrue ni refresh token. El c
 
 ## Pendientes
 
-- **`getWeekOffer` / `listDayOptions` parametrizables:** hoy usan el
-  cliente Supabase por defecto, como `getActiveWeek` antes de
-  parametrizarlo. Hacen falta para la UI de oferta en `/menu/:token`.
+- **`getWeekOffer` / `listDayOptions` parametrizables (hecho):** aceptan un
+  `SupabaseClient` opcional, como `getActiveWeek`. Igual en `listOrders` /
+  `listAllOrders` / `getOrder` / `createOrder` / `updateOrder` /
+  `deleteOrder` / `getOrderTotals`, `listCancellations` /
+  `getCancellation` / `createCancellation` / `deleteCancellation`,
+  `listWeekDays` / `getWeekDay` y `getClient`. Es lo que usa `/menu/:token`.
 - **Vistas o RPC de reportes:** varios servicios calculan agregados en
   cliente (`dish-usage`, `order-totals`, `history`, `historical-week-detail`
   pagina de a 20). Migrar a vistas o RPC si el volumen crece.

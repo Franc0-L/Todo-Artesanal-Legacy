@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../../../lib/supabase";
 import {
   runSupabase,
@@ -6,6 +7,7 @@ import {
 } from "../../../lib/error-handler";
 import { AppError } from "../../../lib/errors";
 import type {
+  Database,
   Tables,
   TablesInsert,
   TablesUpdate,
@@ -72,11 +74,22 @@ export async function listClients(
   };
 }
 
-export async function getClient(clientId: string): Promise<Client> {
+/**
+ * Devuelve la ficha de un cliente.
+ *
+ * `client` permite reutilizarlo desde `/menu/:token` con el JWT de
+ * cliente: la policy `clients_client_select` deja al cliente ver solo su
+ * propia fila, así que sirve para leer su configuración (por ejemplo,
+ * `allows_half_portion`).
+ */
+export async function getClient(
+  clientId: string,
+  client: SupabaseClient<Database> = supabase,
+): Promise<Client> {
   validateUuid(clientId, "clientId");
 
   const result = await runSupabaseOrThrow<ClientRow>(() =>
-    supabase
+    client
       .from("clients")
       .select(CLIENT_COLUMNS)
       .eq("id", clientId)

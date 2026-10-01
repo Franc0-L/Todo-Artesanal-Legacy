@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { isAppError } from "../../lib/errors";
 import { formatDateRange } from "../../lib/formatters";
-import { getActiveWeek } from "../semanas/services/weeks.service";
-import type { Week } from "../semanas/types/week";
+import { ClientDayCard } from "./ClientDayCard";
 import { useClientSession } from "./useClientSession";
+import { useClientWeekData } from "./useClientWeekData";
+import type { ClientMenuData } from "./types/menu-data";
+import type { MenuClient } from "./types/client-session";
 import "./menu.css";
 
 /**
@@ -19,51 +19,18 @@ export function ClientMenuPage() {
   const {
     status,
     sessionId,
+    session,
     client,
     error: sessionError,
     reauthenticate,
   } = useClientSession();
 
-  const [result, setResult] = useState<{
-    key: string;
-    week: Week | null;
-  } | null>(null);
-  const [failure, setFailure] = useState<{
-    key: string;
-    message: string;
-  } | null>(null);
-
-  // La clave de la consulta es la sesión vigente: al reemitir el JWT cambia
-  // el `sessionId`, eso marca `loading` y vuelve a disparar el efecto. El
-  // reintento pasa por `reauthenticate()` (una acción de estado), nunca por
-  // una llamada directa al loader desde un evento.
-  const requestKey = sessionId;
-
-  useEffect(() => {
-    if (!client || requestKey === null) return;
-    const key = requestKey;
-    let cancelled = false;
-
-    void getActiveWeek(client)
-      .then((week) => {
-        if (!cancelled) {
-          setFailure(null);
-          setResult({ key, week });
-        }
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setFailure({ key, message: dataErrorMessage(err) });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [client, requestKey]);
-
-  const dataError =
-    requestKey !== null && failure?.key === requestKey ? failure.message : null;
-  const loading =
-    requestKey !== null && !dataError && result?.key !== requestKey;
+  const clientId = session?.clientId ?? null;
+  const { loading, error: dataError, data, reload } = useClientWeekData(
+    client,
+    clientId,
+    sessionId,
+  );
 
   return (
     <section className="client-menu" aria-labelledby="client-menu-title">
@@ -124,10 +91,15 @@ export function ClientMenuPage() {
             </div>
           )}
 
-          {!loading && !dataError && result && (
+          {!loading && !dataError && (
             <>
-              {result.week ? (
-                <ActiveWeek week={result.week} />
+              {data && client && clientId ? (
+                <ActiveWeek
+                  data={data}
+                  client={client}
+                  clientId={clientId}
+                  onChanged={reload}
+                />
               ) : (
                 <EmptyState
                   mascot="preparacion"
@@ -143,7 +115,17 @@ export function ClientMenuPage() {
   );
 }
 
-function ActiveWeek({ week }: { week: Week }) {
+interface ActiveWeekProps {
+  data: ClientMenuData;
+  client: MenuClient;
+  clientId: string;
+  onChanged: () => void;
+}
+
+function ActiveWeek({ data, client, clientId, onChanged }: ActiveWeekProps) {
+  const { week, offer, orders, cancellations, prices, client: clientRow } = data;
+  const allowsHalfPortion = clientRow?.allowsHalfPortion ?? false;
+
   return (
     <article className="client-menu__week" aria-labelledby="client-week-title">
       <div className="client-menu__week-heading">
@@ -153,25 +135,28 @@ function ActiveWeek({ week }: { week: Week }) {
         <span className="client-menu__badge">Semana activa</span>
       </div>
       <p className="client-menu__week-note">
-        La oferta de esta semana y la toma de pedidos se muestran en esta
-        tarjeta.
+        Elegí tu vianda para cada día. Podés cambiarla o avisar que no la querés
+        hasta que la semana cierre.
       </p>
+
+      <div className="client-menu__days">
+        {offer.days.map((day) => (
+          <ClientDayCard
+            key={day.weekDay.id}
+            day={day}
+            orders={orders.filter((order) => order.weekDayId === day.weekDay.id)}
+            cancellation={
+              cancellations.find((item) => item.weekDayId === day.weekDay.id) ??
+              null
+            }
+            prices={prices}
+            allowsHalfPortion={allowsHalfPortion}
+            clientId={clientId}
+            client={client}
+            onChanged={onChanged}
+          />
+        ))}
+      </div>
     </article>
   );
-}
-
-/**
- * Convierte el error de la consulta en algo que se le pueda mostrar al
- * cliente. Un fallo de permisos suele ser un JWT vencido o recién rotado,
- * y el botón de reintentar lo resuelve emitiendo uno nuevo.
- */
-function dataErrorMessage(error: unknown): string {
-  if (isAppError(error)) {
-    if (error.code === "FORBIDDEN" || error.code === "UNAUTHORIZED") {
-      return "No se pudo consultar la oferta con este enlace. Reintentá.";
-    }
-    return error.message;
-  }
-
-  return "No se pudo cargar la oferta de la semana.";
 }

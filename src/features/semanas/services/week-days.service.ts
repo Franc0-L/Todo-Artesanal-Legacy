@@ -1,7 +1,8 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../../../lib/supabase";
 import { runSupabase, runSupabaseOrThrow } from "../../../lib/error-handler";
 import { AppError } from "../../../lib/errors";
-import type { Tables } from "../../../types/database";
+import type { Database, Tables } from "../../../types/database";
 import type { DayOfWeek } from "../../../types/domain";
 import type { WeekDay } from "../types/week-day";
 
@@ -16,11 +17,14 @@ const WEEK_DAY_COLUMNS = "id,week_id,day_of_week,date,created_at";
  * los RPC create_week y update_week. El admin opera sobre las
  * opciones de oferta, no sobre los días en sí.
  */
-export async function listWeekDays(weekId: string): Promise<WeekDay[]> {
+export async function listWeekDays(
+  weekId: string,
+  client: SupabaseClient<Database> = supabase,
+): Promise<WeekDay[]> {
   validateUuid(weekId, "weekId");
 
   const result = await runSupabase<WeekDayRow[]>(() =>
-    supabase
+    client
       .from("week_days")
       .select(WEEK_DAY_COLUMNS)
       .eq("week_id", weekId)
@@ -30,11 +34,14 @@ export async function listWeekDays(weekId: string): Promise<WeekDay[]> {
   return (result ?? []).map(mapWeekDay);
 }
 
-export async function getWeekDay(weekDayId: string): Promise<WeekDay> {
+export async function getWeekDay(
+  weekDayId: string,
+  client: SupabaseClient<Database> = supabase,
+): Promise<WeekDay> {
   validateUuid(weekDayId, "weekDayId");
 
   const row = await runSupabaseOrThrow<WeekDayRow>(() =>
-    supabase
+    client
       .from("week_days")
       .select(WEEK_DAY_COLUMNS)
       .eq("id", weekDayId)

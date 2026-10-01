@@ -616,10 +616,15 @@ sequenceDiagram
    por un JWT con `authenticateClientToken`.
 3. Guarda `{ linkToken, accessToken, clientId, expiresAt }` y expone la
    sesión por contexto (`ClientSessionProvider`).
-4. `ClientMenuPage` consulta la semana activa con **un cliente Supabase
-   propio** (`createClientWithToken`), usando un `sessionId` monotónico
-   como clave de la query.
-5. En segundo plano renueva el JWT 60 s antes de expirar, sin cambiar el
+4. `useClientWeekData` carga, con **un cliente Supabase propio**
+   (`createClientWithToken`), la semana activa, su oferta, los pedidos y
+   cancelaciones del cliente y sus precios efectivos (RPC
+   `calculate_my_order_price`), usando `sessionId` + `reloadToken` como
+   clave de la query.
+5. `ClientDayCard` permite pedir, cambiar cantidad/notas, quitar el pedido
+   y avisar que no se quiere ese día (cancelación). Cada cambio dispara
+   `reload()`.
+6. En segundo plano renueva el JWT 60 s antes de expirar, sin cambiar el
    estado visible.
 
 **Estados que maneja la página:**
@@ -629,8 +634,9 @@ sequenceDiagram
 | Autenticando              | Resolviendo el canje o la sesión guardada.                                    |
 | Link inválido / rotado    | `AppError("UNAUTHORIZED")` (formato malo, token desconocido o vencido).       |
 | Error de red / servidor   | Falló la llamada a la Edge Function. Botón "Reintentar" → `reauthenticate()`. |
-| Cargando semana           | Sesión ok, pendiente `getActiveWeek`.                                         |
+| Cargando semana           | Sesión ok, pendiente la carga de oferta + pedidos.                            |
 | Sin semana activa         | `getActiveWeek` devuelve `null`.                                              |
+| Error de consulta         | Falló la carga de la semana. Botón "Reintentar" → `reauthenticate()`.         |
 | Semana cerrada / borrador | La semana activa no existe o está `closed`.                                   |
 
 **Invariantes:**

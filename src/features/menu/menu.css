@@ -111,3 +111,380 @@
   color: var(--text-muted);
   line-height: 1.5;
 }
+
+/* Chip de modalidad (General / Opcional / Media vianda). */
+.client-menu__chip {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--badge-neutral-bg);
+  color: var(--badge-neutral-text);
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* =========================================================
+   Días de la semana
+   ========================================================= */
+
+.client-menu__days {
+  display: grid;
+  gap: 16px;
+  margin-top: 20px;
+}
+
+.client-day {
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--bg-app);
+}
+
+.client-day__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.client-day__header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--text-main);
+}
+
+.client-day__date {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.client-day__error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  border: 1px solid var(--danger-border);
+  font-size: 0.875rem;
+}
+
+.client-day__cancelled {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding: 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  color: var(--text-soft);
+}
+
+.client-day__cancelled p {
+  margin: 0;
+}
+
+.client-day__options {
+  display: grid;
+  gap: 10px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.client-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.client-option__info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.client-option__name {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.client-option__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.client-option__price {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* =========================================================
+   Botones de la vista de cliente
+   ========================================================= */
+
+.client-option button,
+.client-day__cancelled button,
+.client-day__composer-actions button {
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.client-option button:hover:not(:disabled),
+.client-day__cancelled button:hover:not(:disabled),
+.client-day__composer-actions button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.client-option button:focus-visible,
+.client-day__cancelled button:focus-visible,
+.client-day__composer-actions button:focus-visible,
+.client-day__skip:focus-visible,
+.client-order-line button:focus-visible {
+  outline: 3px solid var(--primary-focus);
+  outline-offset: 2px;
+}
+
+.client-option button:disabled,
+.client-day__cancelled button:disabled,
+.client-day__composer-actions button:disabled,
+.client-day__skip:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Variante primaria: "Pedir" y "Confirmar pedido". */
+.client-option button:not(.client-option__half),
+.client-day__composer-actions .client-day__confirm {
+  border-color: var(--primary-border);
+  background: var(--primary);
+  color: var(--text-on-solid);
+}
+
+.client-option button:not(.client-option__half):hover:not(:disabled),
+.client-day__composer-actions .client-day__confirm:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+/* =========================================================
+   Composer de pedido (cantidad + notas)
+   ========================================================= */
+
+.client-day__composer {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 14px;
+  border: 1px solid var(--primary-border);
+  border-radius: 10px;
+  background: var(--primary-subtle);
+}
+
+.client-day__composer-title {
+  margin: 0;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.client-day__composer-field {
+  display: grid;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: var(--text-soft);
+}
+
+.client-day__composer-field input,
+.client-order-line__notes input {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  color: var(--input-text);
+  width: 100%;
+}
+
+.client-day__composer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.client-day__skip {
+  margin-top: 14px;
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 600;
+  padding: 7px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--danger-border);
+  background: transparent;
+  color: var(--danger-text);
+  cursor: pointer;
+}
+
+.client-day__skip:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+
+/* =========================================================
+   Pedido ya hecho (línea editable)
+   ========================================================= */
+
+.client-day__orders {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.client-order-line {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--bg-surface);
+}
+
+.client-order-line__main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.client-order-line__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.client-order-line__name {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.client-order-line__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.client-order-line__stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.client-order-line__stepper span {
+  min-width: 1.4rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.client-order-line__stepper button {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+.client-order-line__stepper button:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.client-order-line__stepper button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.client-order-line__price {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.client-order-line__notes {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.client-order-line__notes label {
+  flex: 1;
+  display: grid;
+  gap: 4px;
+}
+
+.client-order-line__notes-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.client-order-line__save,
+.client-order-line__remove {
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  padding: 8px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.client-order-line__save {
+  border: 1px solid var(--primary-border);
+  background: var(--primary);
+  color: var(--text-on-solid);
+}
+
+.client-order-line__save:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+
+.client-order-line__remove {
+  justify-self: start;
+  border: 1px solid var(--danger-border);
+  background: transparent;
+  color: var(--danger-text);
+}
+
+.client-order-line__remove:hover:not(:disabled) {
+  background: var(--danger-bg);
+}
+
+.client-order-line__save:disabled,
+.client-order-line__remove:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

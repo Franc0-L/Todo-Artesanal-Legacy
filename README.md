@@ -27,10 +27,8 @@ arman su pedido de la semana activa.
 
 - ✅ **Fases 1–4** — Dominio, modelo conceptual, modelo PostgreSQL, RLS, funciones y triggers.
 - ✅ **Fase 5** — Migraciones, tipos, servicios y las dos Edge Functions (`rotate-client-token`, `authenticate-client-token`).
-- ✅ **Fase 6** — UI de admin completa (`/admin`) y sesión + estados en `/menu/:token`.
-- ⏳ **Pendiente** — UI de oferta y pedidos del cliente, correr el
-  `db push` de las migraciones pendientes (historial ya reconciliado:
-  gana el local), tests.
+- ✅ **Fase 6** — UI de admin completa (`/admin`) y UI de cliente en `/menu/:token` (oferta, pedidos y cancelaciones por día).
+- ⏳ **Pendiente** — tests de invariantes, ADRs `004`/`005`, Realtime, media vianda desde el catálogo para el cliente.
 
 Ver `docs/estado-fases-1-5.md` para el estado consolidado completo
 (incluida la **reconciliación de migraciones**) y `docs/README.md` para
@@ -329,15 +327,15 @@ Ver `docs/flujos.md` para el detalle de cada paso.
 
 ### Próximo
 
-- [ ] **Terminar la reconciliación de migraciones** — hecho: inspección
-      de las 4 remotas (equivalentes a archivos locales), historial
-      reparado (`migration repair --status reverted`) y consolidación
-      `20260927000001` validada con `db reset`. Falta el push:
-      `npx supabase db push --include-all`
+- [x] **Reconciliación de migraciones** — historial alineado y push corrido
+      (2026-09-29); local y remoto en sync. Aplicada además
+      `20261001000001_client_effective_price.sql` (RPC de precio del cliente).
 - [ ] Verificar el camino de éxito del JWT con un enlace real
-- [ ] UI de oferta y pedidos en `/menu/:token`
+- [x] UI de oferta y pedidos en `/menu/:token` (pendiente: media vianda
+      desde el catálogo para el cliente)
 - [ ] Tests de invariantes contra la DB real
-- [ ] ADRs pendientes (`002`–`005`)
+- [ ] ADRs `004` (`jwt-custom-para-clientes`) y `005`
+      (`semana-no-pertenece-a-cliente`) — `002` y `003` ya escritos
 - [ ] Supabase Realtime para el panel admin
 
 ### Descartado por ahora

@@ -750,31 +750,43 @@ agregaba el push y quedó aplicada el 2026-09-29.
   - `/admin/historial` → `HistoryPage` (detalle por semana con `getHistoricalWeekDetail`)
 - **`AdminSectionPage`** quedó solo como fallback de rutas desconocidas:
   ya no es el placeholder de ninguna sección.
-- **`/menu/:token`** → `ClientSessionProvider` + `ClientMenuPage`:
+- **`/menu/:token`** → `ClientSessionProvider` + `ClientMenuPage` +
+  `useClientWeekData` + `ClientDayCard` + `ClientOrderLine`:
   sesión resuelta (autenticando / link inválido o rotado / error de red),
-  semáforo de carga, y tarjeta de la semana activa con su estado
-  (draft / active / closed). **Sin UI de oferta ni de pedidos todavía.**
+  oferta de la semana activa (día por día, General/Opcional con precio
+  efectivo), y **pedidos + cancelaciones por día** (crear, cambiar
+  cantidad, editar notas, quitar; "no quiero ese día" / "volver a pedir").
+  El precio efectivo se consulta al RPC `calculate_my_order_price`.
 - **UI kit compartido**: `ConfirmDialog` + `useConfirm`, `EmptyState`
   (estilos `.app-empty-state*` en `index.css`).
 - **Estilos**: un CSS por feature, siempre con tokens semánticos de
   `src/index.css` (`--bg-surface`, `--text-main`, `--border-subtle`…),
   nunca hex sueltos.
 
-## Pendiente — UI de cliente (`/menu/:token`)
+## Hecho — UI de cliente (`/menu/:token`)
 
 - Oferta de la semana: `week_days` + `week_day_options` con su
-  `offerModality`, resolviendo `dish_versions` / `menu_versions` y
-  `menu_version_items`. `getActiveWeek(client)` ya acepta cliente propio;
-  `getWeekOffer(weekId)` y `listDayOptions(weekDayId)` **todavía usan el
-  cliente Supabase por defecto** → hay que parametrizarlos igual que
-  `getActiveWeek` para poder reutilizarlos desde `/menu/:token`
-  (RLS ya restringe a la semana activa).
-- Precios efectivos del cliente (general/opcional + `client_product_prices`)
-  y modalidad `media_vianda` cuando `clients.allows_half_portion`.
-- Crear/modificar/quitar pedidos (`createOrder` / `updateOrder` /
-  `deleteOrder`) y cancelaciones del cliente (cuentan como respuesta).
-- Estados de semana en la UI: sin semana activa, semana cerrada,
-  fuera de horario.
+  `offerModality` y sus referencias a `dish_versions` / `menu_versions`.
+  `getWeekOffer` / `listDayOptions` (y `listWeekDays`) aceptan un
+  `SupabaseClient` propio, igual que `getActiveWeek`.
+- Precios efectivos del cliente (general/opcional y media vianda de la
+  oferta) vía el RPC `calculate_my_order_price`
+  (`20261001000001_client_effective_price.sql`): la identidad sale de
+  `private.current_client_id()`, nunca de un parámetro.
+- Crear / modificar (cantidad, notas) / quitar pedidos y cancelaciones del
+  cliente (cuentan como respuesta). Los servicios aceptan el cliente de la
+  sesión.
+- Estados de la UI: sin semana activa, cargando, error de sesión y error de
+  consulta; estados vacíos con `EmptyState`.
+
+### Pendiente
+
+- **Media vianda desde el catálogo para el cliente**: hoy RLS solo expone
+  los `dish_versions` / `menu_versions` de la semana activa, así que un
+  buscador libre del catálogo necesita una policy o un RPC de catálogo
+  (`security definer`). Requiere decisión.
+- **"Fuera de horario"**: no existe como regla de dominio (haría falta, por
+  ejemplo, un horario de cierre en `weeks`).
 
 ---
 
@@ -802,9 +814,10 @@ agregaba el push y quedó aplicada el 2026-09-29.
 - Falta abrir un `/menu/<token>` real para confirmar que PostgREST acepta
   la firma ES256 y que la semana activa se renderiza.
 
-## 3. UI de cliente (oferta + pedidos)
+## 3. UI de cliente (oferta + pedidos) ✅ (hecha)
 
-- Ver "Fase 6 → Pendiente — UI de cliente".
+- Ver "Fase 6 → Hecho — UI de cliente". Pendiente: media vianda desde el
+  catálogo para el cliente y "fuera de horario".
 
 ## 4. Reportes
 

@@ -622,6 +622,15 @@ export type Database = {
         }
         Returns: number
       }
+      calculate_my_order_price: {
+        Args: {
+          p_dish_version_id: string
+          p_menu_version_id: string
+          p_modality: string
+          p_week_day_option_id: string
+        }
+        Returns: number
+      }
       calculate_order_price: {
         Args: {
           p_client_id: string
