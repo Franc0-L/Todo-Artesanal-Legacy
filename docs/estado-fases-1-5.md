@@ -6,7 +6,7 @@ Documento de **estado real y actual** del proyecto: decisiones aprobadas,
 qué está implementado, inventario de migraciones/servicios/UI y pendientes.
 Sirve para arrancar un chat nuevo sin repetir el análisis previo.
 
-> Última actualización: **2026-09-27**.
+> Última actualización: **2026-10-01**.
 > Fuente de verdad: el código y `supabase/migrations/`. Si este documento
 > discrepa de ellos, corregir **este documento**.
 
@@ -776,15 +776,22 @@ agregaba el push y quedó aplicada el 2026-09-29.
 - Crear / modificar (cantidad, notas) / quitar pedidos y cancelaciones del
   cliente (cuentan como respuesta). Los servicios aceptan el cliente de la
   sesión.
+- **Media vianda desde el catálogo** (`ClientCatalogPicker`): el RLS de
+  cliente no expone `dishes` / `menus`, así que el catálogo llega por el
+  RPC `list_client_catalog`
+  (`20261001000002_client_catalog.sql`, `security definer`, identidad
+  resuelta en `private.current_client_id()`, concedido solo a
+  `authenticated`). Se carga una vez y se filtra en memoria; al elegir un
+  producto se pide el precio al mismo `calculate_my_order_price` (pasando
+  `p_dish_version_id` / `p_menu_version_id` y
+  `modality = 'media_vianda'`), y el pedido se crea con `dishVersionId` /
+  `menuVersionId` + `modality: 'media_vianda'`. El botón solo aparece si
+  `clients.allows_half_portion`.
 - Estados de la UI: sin semana activa, cargando, error de sesión y error de
   consulta; estados vacíos con `EmptyState`.
 
 ### Pendiente
 
-- **Media vianda desde el catálogo para el cliente**: hoy RLS solo expone
-  los `dish_versions` / `menu_versions` de la semana activa, así que un
-  buscador libre del catálogo necesita una policy o un RPC de catálogo
-  (`security definer`). Requiere decisión.
 - **"Fuera de horario"**: no existe como regla de dominio (haría falta, por
   ejemplo, un horario de cierre en `weeks`).
 
@@ -808,6 +815,10 @@ agregaba el push y quedó aplicada el 2026-09-29.
   aplicado en remoto con `npx supabase db push --include-all`
   (`--include-all` porque tres archivos eran anteriores al último
   remoto). `migration list` quedó en sync.
+- ✅ **Hecho:** el 2026-10-01 se aplicaron `20261001000001_client_effective_price.sql`
+  (RPC `calculate_my_order_price`) y `20261001000002_client_catalog.sql`
+  (RPC `list_client_catalog`) con `npx supabase db push --yes`.
+  `migration list` sigue en sync.
 
 ## 2. Verificar el camino de éxito del JWT
 
@@ -816,8 +827,8 @@ agregaba el push y quedó aplicada el 2026-09-29.
 
 ## 3. UI de cliente (oferta + pedidos) ✅ (hecha)
 
-- Ver "Fase 6 → Hecho — UI de cliente". Pendiente: media vianda desde el
-  catálogo para el cliente y "fuera de horario".
+- Ver "Fase 6 → Hecho — UI de cliente" (incluye la media vianda desde el
+  catálogo). Pendiente: "fuera de horario".
 
 ## 4. Reportes
 
@@ -1048,6 +1059,35 @@ agregaba el push y quedó aplicada el 2026-09-29.
   mensajes de error que quedó en la 0001 (doble codificación al
   escribirla). Sin cambios de lógica; no necesita rollback.
 - **Aplicada en remoto** (push del 2026-09-29).
+
+## 20261001000001_client_effective_price.sql
+
+- `public.calculate_my_order_price(p_week_day_option_id uuid, p_dish_version_id uuid, p_menu_version_id uuid, p_modality text) → numeric(10,2)`.
+  Exige **exactamente una** fuente de producto (oferta, plato o menú).
+- **`security definer`**: la identidad sale de `private.current_client_id()`
+  (claim `client_id` del JWT ES256 del cliente), nunca de un parámetro.
+- Devuelve la **vista previa** del precio efectivo del cliente: plato
+  específico > general del cliente > base; menú: general > base; la
+  `media_vianda` divide por 2.
+- Es **solo UX**: el precio definitivo lo congela `validate_order` en
+  `applied_price` al insertar.
+- Concedido **solo a `authenticated`** (el JWT de cliente y el admin
+  comparten ese rol; `anon` queda fuera).
+- **Aplicada en remoto** (push del 2026-10-01).
+
+## 20261001000002_client_catalog.sql
+
+- **Media vianda desde el catálogo para el cliente.**
+- `public.list_client_catalog() → { product_type, product_id, version_id, name }`
+- **`security definer` + `stable`**: el RLS de cliente solo expone las
+  `dish_versions` / `menu_versions` de la semana activa, no el catálogo
+  entero, así que el buscador libre pasa por este RPC.
+- Devuelve los platos activos y los menús activos con su **última**
+  versión; la identidad se resuelve con `private.current_client_id()` y
+  la función corta con un error si no hay cliente en la sesión.
+- Concedido **solo a `authenticated`**. No devuelve precios: eso lo hace
+  `calculate_my_order_price`.
+- **Aplicada en remoto** (push del 2026-10-01).
 
 ---
 

@@ -282,6 +282,18 @@ No existe `updateCancellation`: es un hecho histórico inmutable.
 
 No usa `setSession`: el JWT ES256 no tiene usuario GoTrue ni refresh token. El cliente Supabase se crea con `createClientWithToken(accessToken)` (`src/lib/supabase.ts`), y el provider renueva el JWT 60 s antes de expirar.
 
+### `menu-pricing.service.ts`
+
+| Función             | Firma                                                                                 | Descripción                                                                                                                                                                                                                                    |
+| ------------------- | ------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getEffectivePrice` | `(input: EffectivePriceInput, client?) → Promise<number>`                              | `EffectivePriceInput = { weekDayOptionId?, dishVersionId?, menuVersionId?, modality }`. Llama al RPC `calculate_my_order_price`, que exige **exactamente una** fuente de producto y resuelve la identidad con `private.current_client_id()`. **Solo UX**: el precio definitivo lo congela `validate_order`. |
+
+### `menu-catalog.service.ts`
+
+| Función            | Firma                                     | Descripción                                                                                                                                                                                                                                        |
+| ------------------ | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listClientCatalog` | `(client?) → Promise<CatalogItem[]>`      | Catálogo activo para la media vianda libre. RPC `list_client_catalog` (`security definer`): el RLS de cliente no expone `dishes` / `menus`, así que esa es la única vía. `CatalogItem = { type: 'dish' \| 'menu', productId, versionId, name }`. **No** trae precios. |
+
 ---
 
 ## RPCs invocados por servicios
@@ -295,6 +307,8 @@ No usa `setSession`: el JWT ES256 no tiene usuario GoTrue ni refresh token. El c
 | `activate_week`       | `weeks.service`         | `void`    |
 | `close_week`          | `weeks.service`         | `void`    |
 | `is_user_admin`       | `auth.service`          | `boolean` |
+| `calculate_my_order_price` | `menu-pricing.service` | `numeric` |
+| `list_client_catalog`      | `menu-catalog.service`  | filas    |
 
 ---
 
@@ -314,7 +328,8 @@ No usa `setSession`: el JWT ES256 no tiene usuario GoTrue ni refresh token. El c
   `listAllOrders` / `getOrder` / `createOrder` / `updateOrder` /
   `deleteOrder` / `getOrderTotals`, `listCancellations` /
   `getCancellation` / `createCancellation` / `deleteCancellation`,
-  `listWeekDays` / `getWeekDay` y `getClient`. Es lo que usa `/menu/:token`.
+  `listWeekDays` / `getWeekDay`, `getClient`, `getEffectivePrice` y
+  `listClientCatalog`. Es lo que usa `/menu/:token`.
 - **Vistas o RPC de reportes:** varios servicios calculan agregados en
   cliente (`dish-usage`, `order-totals`, `history`, `historical-week-detail`
   pagina de a 20). Migrar a vistas o RPC si el volumen crece.

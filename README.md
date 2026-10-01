@@ -27,8 +27,8 @@ arman su pedido de la semana activa.
 
 - ✅ **Fases 1–4** — Dominio, modelo conceptual, modelo PostgreSQL, RLS, funciones y triggers.
 - ✅ **Fase 5** — Migraciones, tipos, servicios y las dos Edge Functions (`rotate-client-token`, `authenticate-client-token`).
-- ✅ **Fase 6** — UI de admin completa (`/admin`) y UI de cliente en `/menu/:token` (oferta, pedidos y cancelaciones por día).
-- ⏳ **Pendiente** — tests de invariantes, ADRs `004`/`005`, Realtime, media vianda desde el catálogo para el cliente.
+- ✅ **Fase 6** — UI de admin completa (`/admin`) y UI de cliente en `/menu/:token` (oferta, pedidos, cancelaciones y media vianda del catálogo).
+- ⏳ **Pendiente** — tests de invariantes, ADRs `004`/`005`, Realtime, "fuera de horario".
 
 Ver `docs/estado-fases-1-5.md` para el estado consolidado completo
 (incluida la **reconciliación de migraciones**) y `docs/README.md` para
@@ -331,8 +331,9 @@ Ver `docs/flujos.md` para el detalle de cada paso.
       (2026-09-29); local y remoto en sync. Aplicada además
       `20261001000001_client_effective_price.sql` (RPC de precio del cliente).
 - [ ] Verificar el camino de éxito del JWT con un enlace real
-- [x] UI de oferta y pedidos en `/menu/:token` (pendiente: media vianda
-      desde el catálogo para el cliente)
+- [x] UI de oferta y pedidos en `/menu/:token`
+- [x] Media vianda desde el catálogo para el cliente (RPC
+      `list_client_catalog` + `ClientCatalogPicker`)
 - [ ] Tests de invariantes contra la DB real
 - [ ] ADRs `004` (`jwt-custom-para-clientes`) y `005`
       (`semana-no-pertenece-a-cliente`) — `002` y `003` ya escritos

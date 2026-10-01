@@ -226,6 +226,11 @@ sequenceDiagram
      esté en la oferta de ese día → `dish_version_id` /
      `menu_version_id` (el pedido igual queda atado a un día vía
      `week_day_id`).
+
+   En `/menu/:token` esto se resuelve con el botón *Media vianda del
+   catálogo*, que abre `ClientCatalogPicker` (RPC `list_client_catalog`)
+   y luego el mismo compositor de cantidad/notas que la oferta. El precio
+   que se muestra viene de `calculate_my_order_price`.
 2. El trigger `validate_order` valida `allows_half_portion` y el día.
 3. El precio se congela en `applied_price`:
 

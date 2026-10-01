@@ -663,6 +663,15 @@ export type Database = {
         Returns: string
       }
       is_user_admin: { Args: { p_user_id: string }; Returns: boolean }
+      list_client_catalog: {
+        Args: never
+        Returns: {
+          name: string
+          product_id: string
+          product_type: string
+          version_id: string
+        }[]
+      }
       update_week: {
         Args: { p_end_date: string; p_start_date: string; p_week_id: string }
         Returns: undefined

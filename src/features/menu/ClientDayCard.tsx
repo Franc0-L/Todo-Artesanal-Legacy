@@ -11,10 +11,13 @@ import {
   createCancellation,
   deleteCancellation,
 } from "../cancelaciones/services/cancellations.service";
+import { ClientCatalogPicker } from "./ClientCatalogPicker";
 import { ClientOrderLine } from "./ClientOrderLine";
+import { getEffectivePrice } from "./services/menu-pricing.service";
 import { actionErrorMessage } from "./menu-errors";
 import { MODALITY_LABELS } from "./menu-labels";
 import { priceKey } from "./types/menu-data";
+import type { CatalogItem } from "./services/menu-catalog.service";
 import type { Modality } from "../../types/domain";
 import type { MenuClient } from "./types/client-session";
 import type { WeekDayOption, WeekOfferDay } from "../semanas/types/week-offer";
@@ -33,17 +36,22 @@ interface ClientDayCardProps {
   onChanged: () => void;
 }
 
-interface Composing {
-  optionId: string;
-  modality: Modality;
-}
+/**
+ * Fuente del producto que se está por pedir:
+ *  - `offer`: una opción General/Opcional del día (o su media vianda);
+ *  - `catalog`: media vianda libre de cualquier plato/menú del catálogo.
+ */
+type Composing =
+  | { source: "offer"; optionId: string; modality: Modality }
+  | { source: "catalog"; item: CatalogItem };
 
 /**
  * Un día de la semana activa para el cliente.
  *
  * Reglas que refleja (y que la DB también hace cumplir):
  *  - la modalidad `general` / `opcional` la determina la opción de oferta;
- *  - `media_vianda` desde la oferta solo si el cliente la tiene habilitada;
+ *  - `media_vianda` desde la oferta o desde el catálogo solo si el cliente
+ *    la tiene habilitada;
  *  - no puede haber pedido y cancelación el mismo día, así que cuando hay
  *    un pedido no se ofrece cancelar, y cuando hay cancelación no se pide.
  */
@@ -60,6 +68,8 @@ export function ClientDayCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [composing, setComposing] = useState<Composing | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [catalogPrices, setCatalogPrices] = useState<Record<string, number>>({});
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
   const { confirm, confirmDialog } = useConfirm();
@@ -70,7 +80,31 @@ export function ClientDayCard({
     setError(null);
     setQuantity(1);
     setNotes("");
-    setComposing({ optionId: option.id, modality });
+    setComposing({ source: "offer", optionId: option.id, modality });
+  }
+
+  function handlePickCatalog(item: CatalogItem) {
+    setError(null);
+    setQuantity(1);
+    setNotes("");
+    setPickerOpen(false);
+    setComposing({ source: "catalog", item });
+
+    void getEffectivePrice(
+      item.type === "dish"
+        ? { dishVersionId: item.versionId, modality: "media_vianda" }
+        : { menuVersionId: item.versionId, modality: "media_vianda" },
+      client,
+    )
+      .then((value) =>
+        setCatalogPrices((current) => ({
+          ...current,
+          [item.versionId]: value,
+        })),
+      )
+      .catch(() => {
+        // Sin precio la UI muestra "—"; el real lo congela el trigger.
+      });
   }
 
   function cancelCompose() {
@@ -93,18 +127,46 @@ export function ClientDayCard({
   function confirmOrder() {
     if (!composing) return;
     const current = composing;
+    const trimmedNotes = notes.trim() || null;
+
     void run("create", async () => {
-      await createOrder(
-        {
-          clientId,
-          weekDayId,
-          weekDayOptionId: current.optionId,
-          modality: current.modality,
-          quantity,
-          notes: notes.trim() || null,
-        },
-        client,
-      );
+      if (current.source === "offer") {
+        await createOrder(
+          {
+            clientId,
+            weekDayId,
+            weekDayOptionId: current.optionId,
+            modality: current.modality,
+            quantity,
+            notes: trimmedNotes,
+          },
+          client,
+        );
+      } else if (current.item.type === "dish") {
+        await createOrder(
+          {
+            clientId,
+            weekDayId,
+            dishVersionId: current.item.versionId,
+            modality: "media_vianda",
+            quantity,
+            notes: trimmedNotes,
+          },
+          client,
+        );
+      } else {
+        await createOrder(
+          {
+            clientId,
+            weekDayId,
+            menuVersionId: current.item.versionId,
+            modality: "media_vianda",
+            quantity,
+            notes: trimmedNotes,
+          },
+          client,
+        );
+      }
       setComposing(null);
     });
   }
@@ -151,6 +213,23 @@ export function ClientDayCard({
     return value === undefined ? "—" : formatCurrency(value);
   }
 
+  function composePriceLabel(): string {
+    if (!composing) return "—";
+    if (composing.source === "offer") {
+      return priceOf(composing.optionId, composing.modality);
+    }
+    const value = catalogPrices[composing.item.versionId];
+    return value === undefined ? "—" : formatCurrency(value);
+  }
+
+  function composeTitle(): string {
+    if (!composing) return "";
+    if (composing.source === "offer") {
+      return `${MODALITY_LABELS[composing.modality]} · ${composePriceLabel()}`;
+    }
+    return `${composing.item.name} · Media vianda · ${composePriceLabel()}`;
+  }
+
   const isBusy = busy !== null;
 
   return (
@@ -188,96 +267,119 @@ export function ClientDayCard({
         </ul>
       ) : (
         <>
-          <ul className="client-day__options">
-            {day.options.map((option) => (
-              <li key={option.id} className="client-option">
-                <div className="client-option__info">
-                  <span className="client-option__name">
-                    {optionName(option)}
-                  </span>
-                  <span className="client-menu__chip">
-                    {MODALITY_LABELS[option.offerModality]}
-                  </span>
+          {pickerOpen ? (
+            <ClientCatalogPicker
+              client={client}
+              onPick={handlePickCatalog}
+              onClose={() => setPickerOpen(false)}
+            />
+          ) : (
+            <>
+              <ul className="client-day__options">
+                {day.options.map((option) => (
+                  <li key={option.id} className="client-option">
+                    <div className="client-option__info">
+                      <span className="client-option__name">
+                        {optionName(option)}
+                      </span>
+                      <span className="client-menu__chip">
+                        {MODALITY_LABELS[option.offerModality]}
+                      </span>
+                    </div>
+                    <div className="client-option__actions">
+                      <span className="client-option__price">
+                        {priceOf(option.id, option.offerModality)}
+                      </span>
+                      <button
+                        type="button"
+                        disabled={isBusy || composing !== null}
+                        onClick={() =>
+                          startCompose(option, option.offerModality)
+                        }
+                      >
+                        Pedir
+                      </button>
+                      {allowsHalfPortion && (
+                        <button
+                          type="button"
+                          className="client-option__half"
+                          disabled={isBusy || composing !== null}
+                          onClick={() => startCompose(option, "media_vianda")}
+                        >
+                          Media vianda · {priceOf(option.id, "media_vianda")}
+                        </button>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+
+              {composing ? (
+                <div className="client-day__composer">
+                  <p className="client-day__composer-title">{composeTitle()}</p>
+                  <label className="client-day__composer-field">
+                    <span>Cantidad</span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={99}
+                      value={quantity}
+                      onChange={(event) =>
+                        setQuantity(clampQuantity(event.target.value))
+                      }
+                    />
+                  </label>
+                  <label className="client-day__composer-field">
+                    <span>Notas (opcional)</span>
+                    <input
+                      type="text"
+                      maxLength={200}
+                      value={notes}
+                      placeholder="Sin cebolla, porción grande…"
+                      onChange={(event) => setNotes(event.target.value)}
+                    />
+                  </label>
+                  <div className="client-day__composer-actions">
+                    <button
+                      type="button"
+                      disabled={isBusy}
+                      onClick={cancelCompose}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      className="client-day__confirm"
+                      disabled={isBusy}
+                      onClick={confirmOrder}
+                    >
+                      {busy === "create" ? "Guardando…" : "Confirmar pedido"}
+                    </button>
+                  </div>
                 </div>
-                <div className="client-option__actions">
-                  <span className="client-option__price">
-                    {priceOf(option.id, option.offerModality)}
-                  </span>
-                  <button
-                    type="button"
-                    disabled={isBusy || composing !== null}
-                    onClick={() => startCompose(option, option.offerModality)}
-                  >
-                    Pedir
-                  </button>
+              ) : (
+                <div className="client-day__extras">
                   {allowsHalfPortion && (
                     <button
                       type="button"
-                      className="client-option__half"
-                      disabled={isBusy || composing !== null}
-                      onClick={() => startCompose(option, "media_vianda")}
+                      className="client-day__catalog-btn"
+                      disabled={isBusy}
+                      onClick={() => setPickerOpen(true)}
                     >
-                      Media vianda · {priceOf(option.id, "media_vianda")}
+                      Media vianda del catálogo
                     </button>
                   )}
+                  <button
+                    type="button"
+                    className="client-day__skip"
+                    disabled={isBusy}
+                    onClick={() => void cancelDay()}
+                  >
+                    No quiero ese día
+                  </button>
                 </div>
-              </li>
-            ))}
-          </ul>
-
-          {composing && (
-            <div className="client-day__composer">
-              <p className="client-day__composer-title">
-                {MODALITY_LABELS[composing.modality]} ·{" "}
-                {priceOf(composing.optionId, composing.modality)}
-              </p>
-              <label className="client-day__composer-field">
-                <span>Cantidad</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={99}
-                  value={quantity}
-                  onChange={(event) =>
-                    setQuantity(clampQuantity(event.target.value))
-                  }
-                />
-              </label>
-              <label className="client-day__composer-field">
-                <span>Notas (opcional)</span>
-                <input
-                  type="text"
-                  maxLength={200}
-                  value={notes}
-                  placeholder="Sin cebolla, porción grande…"
-                  onChange={(event) => setNotes(event.target.value)}
-                />
-              </label>
-              <div className="client-day__composer-actions">
-                <button type="button" disabled={isBusy} onClick={cancelCompose}>
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  className="client-day__confirm"
-                  disabled={isBusy}
-                  onClick={confirmOrder}
-                >
-                  {busy === "create" ? "Guardando…" : "Confirmar pedido"}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {!composing && (
-            <button
-              type="button"
-              className="client-day__skip"
-              disabled={isBusy}
-              onClick={() => void cancelDay()}
-            >
-              No quiero ese día
-            </button>
+              )}
+            </>
           )}
         </>
       )}
