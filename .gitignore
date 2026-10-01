@@ -23,5 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 audit-*.txt
+
+.agents
 AGENTS.md
-FULL_CHAT_SESSION_SUMMARY.md
+skills-lock.json
