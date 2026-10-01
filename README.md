@@ -235,13 +235,27 @@ Canjea el token de un enlace `/menu/:token` por un JWT de sesión.
 - **Respuesta:** `{ accessToken: string, clientId: string, expiresIn: number }`
 - **Firma:** ES256 con la signing key del proyecto (secrets
   `CLIENT_JWT_PRIVATE_KEY_JWK` y `CLIENT_JWT_KID`), TTL 1 hora
+- **Requisito:** la signing key tiene que estar **activa** en el panel
+  (Auth → Signing Keys) y su pública publicada en el JWKS; si no, PostgREST
+  rechaza el JWT. Procedimiento y errores típicos en
+  `docs/decisiones/20261001-cliente-jwt-es256-signing-key.md`.
 
 ### Deploy
 
 ```bash
+# 1. Signing key ES256 del JWT de cliente.
+npx supabase gen signing-key --algorithm ES256
+#    → confirmar en el panel que la clave queda Active
+# 2. Secrets de la funcion (secrets set --env-file <archivo>):
+#    CLIENT_JWT_PRIVATE_KEY_JWK=<jwk privada> / CLIENT_JWT_KID=<kid>
+# 3. Deploy.
 npx supabase functions deploy rotate-client-token
 npx supabase functions deploy authenticate-client-token
 ```
+
+Los dos fallos típicos de este paso (secret sin cargar y `key_ops` incompatible
+con la firma) están en
+`docs/decisiones/20261001-cliente-jwt-es256-signing-key.md`.
 
 ---
 
@@ -331,7 +345,7 @@ Ver `docs/flujos.md` para el detalle de cada paso.
 - [x] **Reconciliación de migraciones** — historial alineado y push corrido
       (2026-09-29); local y remoto en sync. Aplicada además
       `20261001000001_client_effective_price.sql` (RPC de precio del cliente).
-- [ ] Verificar el camino de éxito del JWT con un enlace real
+- [x] Verificar el camino de éxito del JWT con un enlace real (hecho 2026-10-01)
 - [x] UI de oferta y pedidos en `/menu/:token`
 - [x] Media vianda desde el catálogo para el cliente (RPC
       `list_client_catalog` + `ClientCatalogPicker`)

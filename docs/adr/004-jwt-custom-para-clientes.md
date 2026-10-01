@@ -51,6 +51,10 @@ por un **JWT firmado con ES256** (clave dedicada del proyecto, no
 - Hay una signing key ES256 más que operar (secrets
   `CLIENT_JWT_PRIVATE_KEY_JWK` + `CLIENT_JWT_KID`); si se pierde, hay que
   rotarla y re-emitir.
+- La clave tiene que estar **activa** en el panel y su pública publicada en
+  el JWKS; si no, PostgREST rechaza el JWT (`PGRST301`). Es dependencia de
+  configuración, no de código: ver
+  `docs/decisiones/20261001-cliente-jwt-es256-signing-key.md`.
 - El JWT en `sessionStorage` muere con la pestaña: cada pestaña re-canjea.
 
 ## Alternativas consideradas

@@ -714,7 +714,7 @@ agregaba el push y quedó aplicada el 2026-09-29.
 - TTL 1 hora. Rotar el link invalida el `token` del enlace, pero **no** revoca un JWT ya emitido (ver ADR pendiente `004-jwt-custom-para-clientes.md`).
 - Frontend: `src/features/menu/services/client-auth.service.ts` + `createClientWithToken()` de `src/lib/supabase.ts` (cliente Supabase con `accessToken: async () => jwt`; no se usa `setSession` porque no hay usuario GoTrue ni refresh token).
 - Verificado en vivo: token desconocido → `401 {"error":"Token inválido o expirado"}` (confirma `verify_jwt=false`, secrets cargados y CORS).
-- **Pendiente de verificar:** el camino de éxito (token real → JWT → PostgREST acepta la firma ES256 → semana activa). Requiere abrir un `/menu/<token>` real.
+- ✅ **Camino de éxito verificado (2026-10-01):** link real → `authenticate-client-token` (200) → JWT **ES256** con el `kid` de la signing key activa → PostgREST acepta la firma → `/menu/:token` renderiza la semana activa con los pedidos del cliente. Los dos bloqueos que aparecieron (secret sin cargar y `key_ops` incompatible con la firma) están documentados en `docs/decisiones/20261001-cliente-jwt-es256-signing-key.md`.
 
 ### TODOs anotados en el código
 
