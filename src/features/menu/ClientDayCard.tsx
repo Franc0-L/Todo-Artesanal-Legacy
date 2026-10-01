@@ -83,6 +83,22 @@ export function ClientDayCard({
     setComposing({ source: "offer", optionId: option.id, modality });
   }
 
+  /**
+   * ¿Ya existe exactamente este pedido (misma opción + misma modalidad)?
+   *
+   * El dominio solo prohíbe los pedidos idénticos: un cliente sí puede
+   * tener **varios** pedidos en un día (por ejemplo, la opción General y
+   * una media vianda del catálogo), siempre que no se repitan. Por eso la
+   * tarjeta no se cierra al haber un pedido: solo deshabilita lo que ya
+   * está pedido.
+   */
+  function hasOfferOrder(option: WeekDayOption, modality: Modality): boolean {
+    return orders.some(
+      (order) =>
+        order.weekDayOptionId === option.id && order.modality === modality,
+    );
+  }
+
   function handlePickCatalog(item: CatalogItem) {
     setError(null);
     setQuantity(1);
@@ -252,21 +268,23 @@ export function ClientDayCard({
             {busy === "uncancel" ? "Reactivando…" : "Volver a pedir"}
           </button>
         </div>
-      ) : orders.length > 0 ? (
-        <ul className="client-day__orders">
-          {orders.map((order) => (
-            <ClientOrderLine
-              key={`${order.id}:${order.updatedAt}`}
-              order={order}
-              busy={isBusy}
-              onChangeQuantity={(next) => changeQuantity(order, next)}
-              onSaveNotes={(next) => saveNotes(order, next)}
-              onRemove={() => void removeOrder(order)}
-            />
-          ))}
-        </ul>
       ) : (
         <>
+          {orders.length > 0 && (
+            <ul className="client-day__orders">
+              {orders.map((order) => (
+                <ClientOrderLine
+                  key={`${order.id}:${order.updatedAt}`}
+                  order={order}
+                  busy={isBusy}
+                  onChangeQuantity={(next) => changeQuantity(order, next)}
+                  onSaveNotes={(next) => saveNotes(order, next)}
+                  onRemove={() => void removeOrder(order)}
+                />
+              ))}
+            </ul>
+          )}
+
           {pickerOpen ? (
             <ClientCatalogPicker
               client={client}
@@ -292,21 +310,33 @@ export function ClientDayCard({
                       </span>
                       <button
                         type="button"
-                        disabled={isBusy || composing !== null}
+                        disabled={
+                          isBusy ||
+                          composing !== null ||
+                          hasOfferOrder(option, option.offerModality)
+                        }
                         onClick={() =>
                           startCompose(option, option.offerModality)
                         }
                       >
-                        Pedir
+                        {hasOfferOrder(option, option.offerModality)
+                          ? "Ya pediste"
+                          : "Pedir"}
                       </button>
                       {allowsHalfPortion && (
                         <button
                           type="button"
                           className="client-option__half"
-                          disabled={isBusy || composing !== null}
+                          disabled={
+                            isBusy ||
+                            composing !== null ||
+                            hasOfferOrder(option, "media_vianda")
+                          }
                           onClick={() => startCompose(option, "media_vianda")}
                         >
-                          Media vianda · {priceOf(option.id, "media_vianda")}
+                          {hasOfferOrder(option, "media_vianda")
+                            ? "Ya pediste"
+                            : `Media vianda · ${priceOf(option.id, "media_vianda")}`}
                         </button>
                       )}
                     </div>
@@ -357,7 +387,7 @@ export function ClientDayCard({
                     </button>
                   </div>
                 </div>
-              ) : (
+              ) : allowsHalfPortion || orders.length === 0 ? (
                 <div className="client-day__extras">
                   {allowsHalfPortion && (
                     <button
@@ -369,16 +399,18 @@ export function ClientDayCard({
                       Media vianda del catálogo
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="client-day__skip"
-                    disabled={isBusy}
-                    onClick={() => void cancelDay()}
-                  >
-                    No quiero ese día
-                  </button>
+                  {orders.length === 0 && (
+                    <button
+                      type="button"
+                      className="client-day__skip"
+                      disabled={isBusy}
+                      onClick={() => void cancelDay()}
+                    >
+                      No quiero ese día
+                    </button>
+                  )}
                 </div>
-              )}
+              ) : null}
             </>
           )}
         </>

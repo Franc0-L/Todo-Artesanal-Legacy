@@ -787,6 +787,11 @@ agregaba el push y quedó aplicada el 2026-09-29.
   `modality = 'media_vianda'`), y el pedido se crea con `dishVersionId` /
   `menuVersionId` + `modality: 'media_vianda'`. El botón solo aparece si
   `clients.allows_half_portion`.
+- **Varios pedidos por día**: el dominio solo prohíbe los **idénticos**
+  (cliente + opción + modalidad), así que la tarjeta del día no se cierra
+  con un pedido: lista los existentes y sigue dejando pedir, con lo ya
+  pedido deshabilitado ("Ya pediste"). "No quiero ese día" solo aparece
+  cuando el día no tiene pedidos (la DB rechaza cancelar junto a pedidos).
 - Estados de la UI: sin semana activa, cargando, error de sesión y error de
   consulta; estados vacíos con `EmptyState`.
 

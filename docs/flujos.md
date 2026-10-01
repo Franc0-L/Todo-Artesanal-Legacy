@@ -205,6 +205,10 @@ sequenceDiagram
 - Un cliente no puede tener dos pedidos idénticos. Para más cantidad:
   `quantity`.
 - No puede haber pedido y cancelación el mismo día.
+- Traducción en `/menu/:token`: los pedidos del día se listan arriba y la
+  lista de opciones sigue disponible, con lo ya pedido deshabilitado
+  ("Ya pediste"); el botón "No quiero ese día" solo aparece si el día no
+  tiene pedidos.
 
 ---
 
