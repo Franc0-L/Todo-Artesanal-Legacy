@@ -152,13 +152,137 @@
   font-weight: 600;
 }
 
-/* Resalta el selector de oferta cuando el pedido es media vianda: es la
-   opción cuyo precio se cobra al 50%. */
-.order-field--highlight {
-  padding: 10px;
+/* Selector de producto del catálogo (media vianda libre: cualquier plato o
+   menú activo, no solo la oferta del día). */
+.order-catalog-field {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
   border: 1px solid var(--primary-border);
   border-radius: 8px;
   background: var(--primary-subtle);
+}
+.order-catalog-field__label {
+  color: var(--text-body);
+  font-size: 0.875rem;
+  font-weight: 650;
+}
+.order-catalog-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  padding: 3px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-surface);
+}
+.order-catalog-toggle button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.order-catalog-toggle button.is-active {
+  background: var(--primary);
+  color: var(--text-on-solid);
+}
+.order-catalog-results {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.order-catalog-results li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--bg-surface);
+  font-size: 0.82rem;
+}
+.order-catalog-results li > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.order-catalog-results li button {
+  flex: 0 0 auto;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-body);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.order-catalog-results li button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--primary-border);
+  color: var(--primary);
+}
+.order-catalog-results li button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.order-catalog-selected {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding: 9px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  font-size: 0.85rem;
+}
+.order-catalog-selected__name {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 650;
+  color: var(--text-main);
+}
+.order-catalog-selected__price {
+  color: var(--text-soft);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.order-catalog-selected button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-surface);
+  color: var(--text-body);
+  font: inherit;
+  font-size: 0.76rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+.order-catalog-selected button:hover {
+  background: var(--bg-hover);
+}
+.order-hint--error {
+  color: var(--danger-text);
 }
 .dish-form__summary-main p .order-modality-chip {
   margin-left: 8px;

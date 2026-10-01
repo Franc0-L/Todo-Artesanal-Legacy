@@ -108,6 +108,15 @@ sequenceDiagram
     W-->>A: void
 ```
 
+**UI (admin):** la creación/edición de la semana es un **taller inline**
+en `/admin/semanas` (`WeekWorkspace`), no un drawer: las fechas y el grid
+de oferta (5 columnas, una por día) aparecen dentro de la misma página. El
+drawer (`WeekDetailDrawer`) solo muestra una semana en modo lectura y
+ofrece "Abrir en la página". El taller incluye **"Sugerir opciones"** por
+día y **"Sugerir semana"**: completan los slots vacíos con platos del
+catálogo evitando repetir producto dentro de la semana y respetando
+General + Opcional.
+
 **Pasos:**
 
 1. `createWeek` con lunes y viernes. El RPC crea la semana y sus 5 días.
@@ -137,8 +146,8 @@ sequenceDiagram
 - `BUSINESS_RULE`: validaciones de activate fallan (día sin General u
   Opcional, menú sin main, etc.).
 - `BUSINESS_RULE`: "ya está utilizado en otro día de esta semana"
-  (trigger de unicidad — **solo aplicado en local**, ver
-  `docs/estado-fases-1-5.md`).
+  (trigger de unicidad — aplicado en local y en remoto desde el push del
+  2026-09-29).
 
 ---
 
@@ -155,7 +164,7 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     C->>S: createOrder({ clientId, weekDayOptionId, modality, quantity })
-    Note over S: NO manda applied_price
+    Note over S: NO manda applied_price (week_day_id lo completa el trigger)
     S->>S: valida forma (UUID, modality, quantity)
     S->>DB: INSERT INTO orders
     DB->>DB: trigger validate_order
@@ -174,7 +183,8 @@ sequenceDiagram
    `opcional`. Solo puede sumar `media_vianda` (flujo #4) si el cliente
    tiene `allows_half_portion`.
 3. `createOrder({ clientId, weekDayOptionId, modality, quantity })`.
-   **No envía `applied_price`**: el trigger lo calcula.
+   **No envía `applied_price` ni `week_day_id`**: el trigger los resuelve
+   (el día, a partir de la opción).
 4. El trigger `validate_order`:
 
    - Verifica que la opción exista y que su semana esté `active`.
@@ -208,13 +218,23 @@ sequenceDiagram
 
 **Pasos:**
 
-1. Igual que el flujo #3, pero `modality = 'media_vianda'`.
-2. El trigger `validate_order` valida `allows_half_portion`.
-3. `calculate_order_price` con `modality = 'media_vianda'`:
+1. El cliente marca el pedido como `modality = 'media_vianda'`. La fuente
+   del producto puede ser:
+   - **la oferta del día**: elige una de las opciones (General u
+     Opcional) del día, como en el flujo #3 → `week_day_option_id`, o
+   - **el catálogo**: elige **cualquier plato o menú activo**, aunque no
+     esté en la oferta de ese día → `dish_version_id` /
+     `menu_version_id` (el pedido igual queda atado a un día vía
+     `week_day_id`).
+2. El trigger `validate_order` valida `allows_half_portion` y el día.
+3. El precio se congela en `applied_price`:
 
-   - Calcula el precio normal aplicable usando la rama `general`
-     (nunca `opcional`).
-   - Divide por 2.
+   - **desde la oferta**: `calculate_order_price(..., 'media_vianda')`
+     (precio normal aplicable por la rama `general`, nunca `opcional`,
+     dividido por 2);
+   - **desde el catálogo**: `calculate_catalog_media_vianda_price(...)`
+     (plato: específico > general > base; menú: general > base; siempre
+     la mitad).
 
 **Ejemplo:**
 
@@ -229,6 +249,9 @@ Cliente precio específico = $6.000  (por plato)
 
 - La media vianda NO es una categoría de plato.
 - Requiere `allows_half_portion`.
+- Tiene **dos fuentes de producto**: la oferta del día o el catálogo
+  (`docs/decisiones/20260929-media-vianda-catalogo.md`).
+- El pedido siempre pertenece a un día (`orders.week_day_id`).
 
 ---
 

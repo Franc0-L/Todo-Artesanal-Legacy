@@ -21,6 +21,9 @@ const ORDER_DETAIL_SELECT = `
   id,
   client_id,
   week_day_option_id,
+  week_day_id,
+  dish_version_id,
+  menu_version_id,
   modality,
   quantity,
   applied_price,
@@ -28,39 +31,41 @@ const ORDER_DETAIL_SELECT = `
   created_at,
   updated_at,
   clients ( name, phone ),
+  week_days (
+    id,
+    date,
+    day_of_week,
+    weeks (
+      id,
+      start_date,
+      end_date
+    )
+  ),
+  dish_versions ( name ),
+  menu_versions ( name ),
   week_day_options (
     id,
     option_type,
     dish_versions ( name ),
-    menu_versions ( name ),
-    week_days (
-      id,
-      date,
-      day_of_week,
-      weeks (
-        id,
-        start_date,
-        end_date
-      )
-    )
+    menu_versions ( name )
   )
 `;
 
 const ORDER_TOTALS_SELECT = `
   quantity,
   applied_price,
-  week_day_options (
-    week_day_id,
-    week_days (
-      week_id
-    )
+  week_days (
+    week_id
   )
 `;
 
 interface OrderDetailRow {
   id: string;
   client_id: string;
-  week_day_option_id: string;
+  week_day_option_id: string | null;
+  week_day_id: string;
+  dish_version_id: string | null;
+  menu_version_id: string | null;
   modality: string;
   quantity: number;
   applied_price: number;
@@ -68,31 +73,30 @@ interface OrderDetailRow {
   created_at: string;
   updated_at: string;
   clients: { name: string; phone: string | null } | null;
+  week_days: {
+    id: string;
+    date: string;
+    day_of_week: number;
+    weeks: {
+      id: string;
+      start_date: string;
+      end_date: string;
+    } | null;
+  } | null;
+  dish_versions: { name: string } | null;
+  menu_versions: { name: string } | null;
   week_day_options: {
     id: string;
     option_type: string;
     dish_versions: { name: string } | null;
     menu_versions: { name: string } | null;
-    week_days: {
-      id: string;
-      date: string;
-      day_of_week: number;
-      weeks: {
-        id: string;
-        start_date: string;
-        end_date: string;
-      } | null;
-    } | null;
   } | null;
 }
 
 interface OrderTotalsRow {
   quantity: number;
   applied_price: number;
-  week_day_options: {
-    week_day_id: string;
-    week_days: { week_id: string } | null;
-  } | null;
+  week_days: { week_id: string } | null;
 }
 
 export async function listOrders(
@@ -116,20 +120,12 @@ export async function listOrders(
 
   if (params.weekId !== undefined) {
     validateUuid(params.weekId, "weekId");
-    query = query.filter(
-      "week_day_options.week_days.week_id",
-      "eq",
-      params.weekId,
-    );
+    query = query.filter("week_days.week_id", "eq", params.weekId);
   }
 
   if (params.weekDayId !== undefined) {
     validateUuid(params.weekDayId, "weekDayId");
-    query = query.filter(
-      "week_day_options.week_day_id",
-      "eq",
-      params.weekDayId,
-    );
+    query = query.eq("week_day_id", params.weekDayId);
   }
 
   if (params.modality !== undefined) {
@@ -255,20 +251,12 @@ export async function getOrderTotals(
 
   if (params.weekId !== undefined) {
     validateUuid(params.weekId, "weekId");
-    query = query.filter(
-      "week_day_options.week_days.week_id",
-      "eq",
-      params.weekId,
-    );
+    query = query.filter("week_days.week_id", "eq", params.weekId);
   }
 
   if (params.weekDayId !== undefined) {
     validateUuid(params.weekDayId, "weekDayId");
-    query = query.filter(
-      "week_day_options.week_day_id",
-      "eq",
-      params.weekDayId,
-    );
+    query = query.eq("week_day_id", params.weekDayId);
   }
 
   if (params.modality !== undefined) {
@@ -295,14 +283,20 @@ export async function getOrderTotals(
   };
 }
 
-function validateCreateOrderInput(input: CreateOrderInput): {
+/** Fila que se inserta en orders (el trigger rellena applied_price). */
+type OrderInsertPayload = {
   client_id: string;
-  week_day_option_id: string;
+  week_day_id: string;
+  week_day_option_id?: string | null;
+  dish_version_id?: string;
+  menu_version_id?: string;
   modality: string;
   quantity: number;
   applied_price: number;
   notes: string | null;
-} {
+};
+
+function validateCreateOrderInput(input: CreateOrderInput): OrderInsertPayload {
   if (!input || typeof input !== "object") {
     throw new AppError(
       "VALIDATION_ERROR",
@@ -311,13 +305,48 @@ function validateCreateOrderInput(input: CreateOrderInput): {
   }
 
   validateUuid(input.clientId, "clientId");
-  validateUuid(input.weekDayOptionId, "weekDayOptionId");
   validateModality(input.modality);
   validateQuantity(input.quantity);
 
+  // Fuente de producto: la opción de oferta del día...
+  if ("weekDayOptionId" in input) {
+    validateUuid(input.weekDayOptionId, "weekDayOptionId");
+
+    return {
+      client_id: input.clientId,
+      week_day_id: input.weekDayId,
+      week_day_option_id: input.weekDayOptionId,
+      modality: input.modality,
+      quantity: input.quantity,
+      applied_price: 0,
+      notes: normalizeNullableString(input.notes),
+    };
+  }
+
+  // ...o el catálogo (solo media vianda; la exclusión mutua la garantiza
+  // CHECK orders_product_source_check y el tipo del input).
+  if ("dishVersionId" in input) {
+    validateUuid(input.dishVersionId, "dishVersionId");
+
+    return {
+      client_id: input.clientId,
+      week_day_option_id: null,
+      week_day_id: input.weekDayId,
+      dish_version_id: input.dishVersionId,
+      modality: input.modality,
+      quantity: input.quantity,
+      applied_price: 0,
+      notes: normalizeNullableString(input.notes),
+    };
+  }
+
+  validateUuid(input.menuVersionId, "menuVersionId");
+
   return {
     client_id: input.clientId,
-    week_day_option_id: input.weekDayOptionId,
+    week_day_option_id: null,
+    week_day_id: input.weekDayId,
+    menu_version_id: input.menuVersionId,
     modality: input.modality,
     quantity: input.quantity,
     applied_price: 0,
@@ -437,21 +466,40 @@ function mapDayOfWeek(value: number): DayOfWeek {
 
 function mapOrderDetail(row: OrderDetailRow): OrderDetail {
   const wdo = row.week_day_options;
-  const wd = wdo?.week_days ?? null;
+  // El día se resuelve siempre desde orders.week_day_id: un pedido de
+  // catálogo no tiene week_day_options y su join anularía el contexto.
+  const wd = row.week_days ?? null;
   const week = wd?.weeks ?? null;
 
+  // El producto puede venir de la oferta del día (week_day_options) o
+  // del catálogo (media vianda libre, sin opción).
+  let optionId: string | null = wdo ? wdo.id : null;
+  let optionType: OptionType | null = null;
   let optionName: string | null = null;
+
   if (wdo) {
-    if (wdo.option_type === "dish")
-      optionName = wdo.dish_versions?.name ?? null;
-    else if (wdo.option_type === "menu")
-      optionName = wdo.menu_versions?.name ?? null;
+    optionType = mapOptionType(wdo.option_type);
+    optionName =
+      optionType === "dish"
+        ? (wdo.dish_versions?.name ?? null)
+        : (wdo.menu_versions?.name ?? null);
+  } else if (row.dish_version_id) {
+    optionId = row.dish_version_id;
+    optionType = "dish";
+    optionName = row.dish_versions?.name ?? null;
+  } else if (row.menu_version_id) {
+    optionId = row.menu_version_id;
+    optionType = "menu";
+    optionName = row.menu_versions?.name ?? null;
   }
 
   return {
     id: row.id,
     clientId: row.client_id,
+    weekDayId: row.week_day_id,
     weekDayOptionId: row.week_day_option_id,
+    dishVersionId: row.dish_version_id,
+    menuVersionId: row.menu_version_id,
     modality: mapModality(row.modality),
     quantity: row.quantity,
     appliedPrice: row.applied_price,
@@ -467,8 +515,9 @@ function mapOrderDetail(row: OrderDetailRow): OrderDetail {
     week: week
       ? { id: week.id, startDate: week.start_date, endDate: week.end_date }
       : null,
-    option: wdo
-      ? { id: wdo.id, type: mapOptionType(wdo.option_type), name: optionName }
-      : null,
+    option:
+      optionId !== null && optionType !== null
+        ? { id: optionId, type: optionType, name: optionName }
+        : null,
   };
 }

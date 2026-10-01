@@ -23,6 +23,5 @@ dist-ssr
 *.sln
 *.sw?
 audit-*.txt
-opencode.json
 AGENTS.md
 FULL_CHAT_SESSION_SUMMARY.md

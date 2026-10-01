@@ -473,10 +473,10 @@ Detalle completo en `docs/decisiones/20260926-oferta-general-opcional.md`.
   consolidación `20260927000001` devuelve la versión **fusionada**
   (ambos chequeos).
 
-> ⚠️ En la base remota el **trigger sí rige** (la misma migración se
-> aplicó allí como `20260926161458`); lo que falta en remoto — igual
-> que en la cadena local — es el chequeo agregado en `activate_week`,
-> que repone `20260927000001`. Ver "Divergencia local ↔ remoto →
+> ⚠️ En la base remota el **trigger también rige** (la misma migración
+> se aplicó allí como `20260926161458`). El chequeo agregado en
+> `activate_week` que faltaba lo repuso `20260927000001`, aplicada en
+> remoto con el push del 2026-09-29. Ver "Divergencia local ↔ remoto →
 > decisión tomada" en Fase 5A.
 
 ---
@@ -486,7 +486,7 @@ Detalle completo en `docs/decisiones/20260926-oferta-general-opcional.md`.
 ## Fase 5A — Migraciones
 
 - Proyecto Supabase: `Todo-Artesanal` (linkeado).
-- **15 archivos** de migración locales (inventario completo en
+- **17 archivos** de migración locales (inventario completo en
   "Archivos SQL generados", al final).
 - 15 tablas en `public` + `private.admin_users` en `private`.
 - Funciones de dominio en `public`:
@@ -506,14 +506,14 @@ Detalle completo en `docs/decisiones/20260926-oferta-general-opcional.md`.
 > local pisa lo que haya quedado en la base remota.**
 > Procedimiento completo: `docs/decisiones/20260927-local-fuente-de-verdad.md`.
 
-Estado de `npx supabase migration list` (2026-09-27, **después** de
-reparar el historial):
+Estado de `npx supabase migration list` (actualizado 2026-09-29, con el
+push ya corrido):
 
-| Situación                                | Migraciones                                                                                                            |
-| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| Local y remoto (al día)                  | `20260923000001`…`20260924000004` + `20260926165141`                                                                   |
-| **Solo local** (pendientes de `db push`) | `20260924000005`, `20260924000006`, `20260926000001`, `20260926170000`, `20260927000001`                               |
-| **Solo remoto** (sin archivo)            | ninguna: las 4 originales (`20260924131042`, `20260924131127`, `20260926161458`, `20260926165602`) quedaron `reverted` |
+| Situación                     | Migraciones                                                                                  |
+| ----------------------------- | -------------------------------------------------------------------------------------------- |
+| Local y remoto (al día)       | `20260923000001`…`20260927000001` + `20260929000001` + `20260929000002` (historial completo) |
+| **Solo local**                | ninguna: el `db push` del 2026-09-29 aplicó el backlog pendiente                             |
+| **Solo remoto** (sin archivo) | ninguna: las 4 originales quedaron `reverted`                                                |
 
 Antes de la reparación el historial tenía, además, esas 4 versiones solo
 en remoto:
@@ -544,9 +544,10 @@ local con `db reset`, 15/15 OK):
   semánticamente; `activate_week` remota = 7 chequeos, local
   consolidada = 9.
 
-**Único gap real:** `20260926165141` reescribió `activate_week` sin los
-chequeos de duplicados (igual en repo que en remoto), así que la doble
-red de unicidad en `activate_week` es lo único que agrega el push.
+**Único gap real (ya cerrado):** `20260926165141` reescribió
+`activate_week` sin los chequeos de duplicados (igual en repo que en
+remoto); la doble red de unicidad en `activate_week` era lo único que
+agregaba el push y quedó aplicada el 2026-09-29.
 
 #### Estado del procedimiento
 
@@ -568,29 +569,27 @@ red de unicidad en `activate_week` es lo único que agrega el push.
 20260924131127 20260926161458 20260926165602`. Solo bookkeeping de
    `supabase_migrations`; no toca esquema ni datos (revirtible con
    `--status applied`).
-3. ⏳ **Falta el push** (lo corre el usuario):
+3. ✅ **Push corrido** (2026-09-29): el backlog quedó aplicado en remoto.
 
    ```bash
-   npx supabase db push --dry-run --include-all   # revisar las 5 líneas
    npx supabase db push --include-all
    ```
 
-   `--include-all` es obligatorio: sin él el CLI se niega porque
-   `000005`, `000006` y `000001` tienen timestamp anterior al último
-   remoto aplicado. Dry-run verificado: empuja exactamente
-   `20260924000005`, `20260924000006`, `20260926000001`,
+   `--include-all` fue necesario porque `000005`, `000006` y `000001`
+   tienen timestamp anterior al último remoto aplicado. Empujó
+   exactamente `20260924000005`, `20260924000006`, `20260926000001`,
    `20260926170000`, `20260927000001`.
 
-4. ✅ **`migration list` ya sin versiones remotas huérfanas**; después
-   del push debe quedar con las 15 alineadas.
+4. ✅ **`migration list` sin versiones huérfanas** y **local = remoto**
+   (verificado el 2026-09-29): las 15 del backlog + las 2 del 2026-09-29.
 
-> ⚠️ **Ventana transitoria durante el push:** `20260926000001` reescribe
-> `activate_week` a la versión previa a la modalidad y la consolidación
-> la restaura fusionada apenas después. No activar semanas mientras se
-> empuja. Alternativa mínima (evita la ventana): marcar `000005`,
-> `000006`, `000001` y `170000` con `migration repair --status applied`
-> —su efecto ya está verificado presente— y empujar solo la
-> consolidación.
+> ✅ **Ventana transitoria (histórica, ya cerrada):** durante el push del
+> 2026-09-29, `20260926000001` reescribe `activate_week` a la versión
+> previa a la modalidad y la consolidación la restaura fusionada apenas
+> después. Por eso no se activan semanas mientras se empuja. Alternativa
+> mínima que evita la ventana: marcar `000005`, `000006`, `000001` y
+> `170000` con `migration repair --status applied` —su efecto ya está
+> verificado presente— y empujar solo la consolidación.
 
 ## Fase 5B — Tipos y helpers
 
@@ -781,7 +780,7 @@ red de unicidad en `activate_week` es lo único que agrega el push.
 
 # Pendientes — Fase 7 en adelante
 
-## 1. Reconciliar migraciones ⚠️ (historial listo, falta el push)
+## 1. Reconciliar migraciones ✅ (hecho: historial alineado + push 2026-09-29)
 
 - **Decisión tomada: local gana**
   (`docs/decisiones/20260927-local-fuente-de-verdad.md`).
@@ -793,15 +792,10 @@ red de unicidad en `activate_week` es lo único que agrega el push.
 - ✅ **Hecho:** consolidación `20260927000001` escrita y validada con
   `npx supabase db reset` (15/15 OK); dump de esquema remoto vs. local:
   estructura idéntica (0 diferencias).
-- ⏳ **Pendiente:** correr el push (lo hace el usuario):
-
-  ```bash
-  npx supabase db push --dry-run --include-all   # 5 archivos
-  npx supabase db push --include-all
-  ```
-
-  `--include-all` es obligatorio (tres archivos son anteriores al
-  último remoto). Dry-run ya verificado.
+- ✅ **Hecho:** push corrido (2026-09-29) — el backlog local quedó
+  aplicado en remoto con `npx supabase db push --include-all`
+  (`--include-all` porque tres archivos eran anteriores al último
+  remoto). `migration list` quedó en sync.
 
 ## 2. Verificar el camino de éxito del JWT
 
@@ -929,16 +923,16 @@ red de unicidad en `activate_week` es lo único que agrega el push.
 
 - `grant execute on function public.is_user_admin(uuid) to authenticated`
 - Habilita el chequeo de admin desde el frontend (`isCurrentUserAdmin`).
-- **Solo local en el historial**, pero el efecto **ya está en producción**
-  (la migración del dashboard `20260924131042` hace exactamente lo
-  mismo). Pendiente de `db push`.
+- Aplicada en remoto (push del 2026-09-29); su efecto ya regía en
+  producción desde la migración del dashboard `20260924131042` (mismo
+  contenido).
 
 ## 20260924000006_restrict_admin_check_rpc_anon.sql
 
 - `revoke execute ... from anon` (defensa: el RPC solo para
   `service_role` y `authenticated`).
-- **Solo local en el historial**, efecto **ya presente en producción**
-  (dashboard `20260924131127`).
+- Aplicada en remoto (push del 2026-09-29); su efecto ya estaba en
+  producción vía dashboard `20260924131127`.
 
 ## 20260926000001_week_option_unique_product_per_week.sql
 
@@ -955,8 +949,8 @@ red de unicidad en `activate_week` es lo único que agrega el push.
   semana para cerrar la carrera entre escrituras concurrentes.
 - Reemplaza `activate_week` sumando el chequeo agregado de duplicados +
   "exactamente 1 main" + "ningún día vacío".
-- **Solo local en el historial**, pero todo su efecto **ya rige en
-  producción** vía `20260926161458` (mismo SQL, aplicado desde el
+- Aplicada en remoto (push del 2026-09-29); su efecto ya regía en
+  producción vía `20260926161458` (mismo SQL, aplicado desde el
   dashboard): trigger, función, limpieza del duplicado y `activate_week`
   con duplicados. Ese último chequeo lo pisó después `20260926165141`
   **tanto en el repo como en remoto**; lo repone la consolidación
@@ -990,7 +984,7 @@ red de unicidad en `activate_week` es lo único que agrega el push.
 - **Contenido idéntico** al de la versión vigente en remoto
   (`20260926165602`, `normalize_order_offer_modality`) — verificado
   comparando los cuerpos normalizados de ambas funciones.
-- **Solo local en el historial**: pendiente de `db push`.
+- Aplicada en remoto (push del 2026-09-29).
 
 ## 20260927000001_reconcile_local_source_of_truth.sql
 
@@ -1010,8 +1004,37 @@ red de unicidad en `activate_week` es lo único que agrega el push.
   e índice único) idempotentemente.
 - Limpieza del duplicado conocido, solo si sigue existiendo y no tiene
   pedidos.
-- **Estado:** pendiente de aplicar (es parte del backlog que empuja
-  `db push`).
+- **Estado:** aplicada en remoto (push del 2026-09-29).
+
+## 20260929000001_catalog_media_vianda.sql
+
+- **Media vianda desde el catálogo** (decisión
+  `docs/decisiones/20260929-media-vianda-catalogo.md`; revierte
+  parcialmente `docs/decisiones/20260926-oferta-general-opcional.md`).
+- `orders.week_day_id` (nullable → backfill desde `week_day_options` →
+  `NOT NULL`): el día deja de derivarse de la opción de oferta.
+- `orders.dish_version_id` / `orders.menu_version_id`: producto de
+  catálogo para la media vianda libre.
+- CHECK `orders_product_source_check`: exactamente una fuente de
+  producto según la modalidad.
+- Índices: `orders_week_day_id_idx`, dos parciales por producto y dos
+  **únicos parciales** (`orders_catalog_dish_unique`,
+  `orders_catalog_menu_unique`).
+- `public.calculate_catalog_media_vianda_price()`: 50% del precio normal
+  (plato: específico > general > base; menú: general > base).
+- `private.validate_order` unificado (día desde `week_day_id`, precios
+  por fuente) + triggers de protección de cancelación leyendo el día
+  desde `orders.week_day_id`.
+- **Aplicada en remoto** (push del 2026-09-29).
+
+## 20260929000002_fix_media_vianda_text.sql
+
+- **Solo texto.** `create or replace` de `private.validate_order`,
+  `private.prevent_order_with_cancellation` y
+  `private.prevent_cancellation_with_order` para reparar el mojibake de 6
+  mensajes de error que quedó en la 0001 (doble codificación al
+  escribirla). Sin cambios de lógica; no necesita rollback.
+- **Aplicada en remoto** (push del 2026-09-29).
 
 ---
 

@@ -15,18 +15,24 @@ import { getActiveWeek } from "../semanas/services/weeks.service";
 import { getWeekOffer } from "../semanas/services/week-offer.service";
 import { getExpectedClients } from "../semanas/services/week-expected-clients.service";
 import { DAY_LABELS } from "../semanas/day-labels";
+import { listDishes } from "../platos/services/dishes.service";
+import { listDishVersions } from "../platos/services/dish-versions.service";
+import { listMenus } from "../menus/services/menus.service";
+import { getLatestMenuVersion } from "../menus/services/menu-versions.service";
 import {
   formatCurrency,
   formatDate,
   formatDateRange,
 } from "../../lib/formatters";
 import { useConfirm } from "../../components/ui/useConfirm";
-import type { Modality } from "../../types/domain";
+import type { Modality, OptionType } from "../../types/domain";
 import type { CreateOrderInput, UpdateOrderInput } from "./types/order";
 import type { OrderDetail } from "./types/order-detail";
 import type { WeekDayOption, WeekOffer } from "../semanas/types/week-offer";
 import type { WeekExpectedClient } from "../semanas/types/week-expected-clients";
 import type { Week } from "../semanas/types/week";
+import type { DishListItem } from "../platos/types/dish-list";
+import type { MenuListItem } from "../menus/types/menu-list";
 
 interface OrderDrawerProps {
   mode: "create" | "edit";
@@ -42,6 +48,19 @@ const MODALITY_LABELS: Record<Modality, string> = {
   opcional: "Opcional",
   media_vianda: "Media vianda",
 };
+
+/** Búsqueda del catálogo para la media vianda libre. */
+const CATALOG_SEARCH_DEBOUNCE_MS = 350;
+const CATALOG_SEARCH_PAGE_SIZE = 6;
+
+/** Producto de catálogo elegido para una media vianda, con versión resuelta. */
+interface CatalogSelection {
+  type: OptionType;
+  productId: string;
+  versionId: string;
+  name: string;
+  price: number;
+}
 
 export function OrderDrawer({
   mode,
@@ -73,6 +92,20 @@ export function OrderDrawer({
   // define la oferta elegida, así que el flag se puede marcar antes de
   // elegir opción y la modalidad final se resuelve al enviar.
   const [mediaVianda, setMediaVianda] = useState(false);
+  // Selector de catálogo: con media vianda marcada el producto sale de todo
+  // el catálogo de platos/menús, no solo de la oferta de ese día.
+  const [catalogType, setCatalogType] = useState<OptionType>("dish");
+  const [catalogQuery, setCatalogQuery] = useState("");
+  const [catalogDishes, setCatalogDishes] = useState<DishListItem[]>([]);
+  const [catalogMenus, setCatalogMenus] = useState<MenuListItem[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(true);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+  const [selectedCatalog, setSelectedCatalog] =
+    useState<CatalogSelection | null>(null);
+  const [resolvingCatalogId, setResolvingCatalogId] = useState<string | null>(
+    null,
+  );
+  const catalogDebounceRef = useRef<number | null>(null);
   const [createQuantity, setCreateQuantity] = useState("1");
   const [createNotes, setCreateNotes] = useState("");
   // Arranca cargando si el drawer se abre para crear o para ver un pedido: el
@@ -84,7 +117,10 @@ export function OrderDrawer({
   const { confirm, confirmDialog } = useConfirm();
 
   const dirty = isCreateMode
-    ? selectedOptionId !== "" || selectedClientId !== "" || mediaVianda
+    ? selectedOptionId !== "" ||
+      selectedClientId !== "" ||
+      mediaVianda ||
+      selectedCatalog !== null
     : quantity !== baselineQuantity || notes !== baselineNotes;
 
   // El estado del formulario se reinicia por remonte (ver `key` en
@@ -183,6 +219,66 @@ export function OrderDrawer({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [orderId, isCreateMode, requestClose]);
 
+  // Búsqueda en el catálogo: se activa con media vianda marcada y sin
+  // producto elegido. El estado de carga lo marcan los eventos que cambian la
+  // búsqueda; el efecto solo programa la consulta y resuelve sus resultados.
+  useEffect(() => {
+    if (!isCreateMode || !mediaVianda || selectedCatalog) return;
+
+    if (catalogDebounceRef.current !== null) {
+      window.clearTimeout(catalogDebounceRef.current);
+    }
+
+    const trimmed = catalogQuery.trim();
+    const delay = trimmed ? CATALOG_SEARCH_DEBOUNCE_MS : 0;
+    let cancelled = false;
+
+    catalogDebounceRef.current = window.setTimeout(() => {
+      const request =
+        catalogType === "dish"
+          ? listDishes({
+              search: trimmed || undefined,
+              active: true,
+              pageSize: CATALOG_SEARCH_PAGE_SIZE,
+            }).then((result) => {
+              if (cancelled) return;
+              setCatalogDishes(result.items);
+              setCatalogMenus([]);
+            })
+          : listMenus({
+              search: trimmed || undefined,
+              active: true,
+              pageSize: CATALOG_SEARCH_PAGE_SIZE,
+            }).then((result) => {
+              if (cancelled) return;
+              setCatalogMenus(result.items);
+              setCatalogDishes([]);
+            });
+
+      request
+        .catch((searchErr: unknown) => {
+          if (cancelled) return;
+          setCatalogDishes([]);
+          setCatalogMenus([]);
+          setCatalogError(
+            searchErr instanceof Error
+              ? searchErr.message
+              : "No se pudo buscar en el catálogo.",
+          );
+        })
+        .finally(() => {
+          if (!cancelled) setCatalogLoading(false);
+        });
+    }, delay);
+
+    return () => {
+      cancelled = true;
+      if (catalogDebounceRef.current !== null) {
+        window.clearTimeout(catalogDebounceRef.current);
+      }
+    };
+  }, [catalogQuery, catalogType, isCreateMode, mediaVianda, selectedCatalog]);
+
   const selectedDay =
     offer?.days.find((day) => day.weekDay.id === selectedDayId) ?? null;
   const dayOptions: WeekDayOption[] = selectedDay?.options ?? [];
@@ -214,11 +310,117 @@ export function OrderDrawer({
     setSelectedOptionId(optionId);
   }
 
+  function beginCatalogSearch() {
+    setCatalogLoading(true);
+    setCatalogError(null);
+  }
+
+  function handleCatalogTypeChange(next: OptionType) {
+    beginCatalogSearch();
+    setCatalogType(next);
+    setCatalogQuery("");
+  }
+
+  function handleCatalogQueryChange(value: string) {
+    beginCatalogSearch();
+    setCatalogQuery(value);
+  }
+
+  /**
+   * Marcar/desmarcar media vianda cambia la fuente del producto: la opción
+   * de oferta y el producto de catálogo no son intercambiables, así que se
+   * limpia lo elegido para no enviar el producto equivocado.
+   */
+  function handleMediaViandaToggle(enabled: boolean) {
+    setMediaVianda(enabled);
+    setSelectedOptionId("");
+    setSelectedCatalog(null);
+    beginCatalogSearch();
+  }
+
+  async function handlePickDish(dish: DishListItem) {
+    setCatalogError(null);
+    setResolvingCatalogId(dish.id);
+
+    try {
+      const versions = await listDishVersions(dish.id);
+      const latest = versions[0];
+
+      if (!latest) {
+        setCatalogError(
+          `${dish.name ?? "El plato"} no tiene versiones cargadas.`,
+        );
+        return;
+      }
+
+      setSelectedCatalog({
+        type: "dish",
+        productId: dish.id,
+        versionId: latest.id,
+        name: latest.name,
+        price: latest.price,
+      });
+    } catch (pickError: unknown) {
+      setCatalogError(
+        pickError instanceof Error
+          ? pickError.message
+          : "No se pudo elegir el plato.",
+      );
+    } finally {
+      setResolvingCatalogId(null);
+    }
+  }
+
+  async function handlePickMenu(menu: MenuListItem) {
+    setCatalogError(null);
+    setResolvingCatalogId(menu.id);
+
+    try {
+      const latest = await getLatestMenuVersion(menu.id);
+
+      if (!latest) {
+        setCatalogError(
+          `${menu.name ?? "El menú"} no tiene versiones cargadas.`,
+        );
+        return;
+      }
+
+      setSelectedCatalog({
+        type: "menu",
+        productId: menu.id,
+        versionId: latest.id,
+        name: latest.name,
+        price: latest.price,
+      });
+    } catch (pickError: unknown) {
+      setCatalogError(
+        pickError instanceof Error
+          ? pickError.message
+          : "No se pudo elegir el menú.",
+      );
+    } finally {
+      setResolvingCatalogId(null);
+    }
+  }
+
+  function handleClearCatalog() {
+    setSelectedCatalog(null);
+    beginCatalogSearch();
+  }
+
   async function handleCreateSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving) return;
     setError(null);
-    if (!selectedOptionId) {
+    if (!selectedDayId) {
+      setError("Elegí un día.");
+      return;
+    }
+    if (mediaVianda && !selectedCatalog) {
+      setError("Elegí un plato o menú del catálogo.");
+      return;
+    }
+    if (!mediaVianda && !selectedOptionId) {
       setError("Elegí una opción de oferta.");
       return;
     }
@@ -239,13 +441,36 @@ export function OrderDrawer({
     }
     setSaving(true);
     try {
-      const input: CreateOrderInput = {
-        clientId: selectedClientId,
-        weekDayOptionId: selectedOptionId,
-        modality: resolvedModality,
-        quantity: quantityValue,
-        notes: createNotes || null,
-      };
+      const notesValue = createNotes || null;
+      // Dos fuentes posibles: la opción de oferta del día o un producto del
+      // catálogo (solo media vianda). Son excluyentes por CHECK en la DB.
+      const input: CreateOrderInput =
+        mediaVianda && selectedCatalog
+          ? selectedCatalog.type === "dish"
+            ? {
+                clientId: selectedClientId,
+                weekDayId: selectedDayId,
+                dishVersionId: selectedCatalog.versionId,
+                modality: "media_vianda",
+                quantity: quantityValue,
+                notes: notesValue,
+              }
+            : {
+                clientId: selectedClientId,
+                weekDayId: selectedDayId,
+                menuVersionId: selectedCatalog.versionId,
+                modality: "media_vianda",
+                quantity: quantityValue,
+                notes: notesValue,
+              }
+          : {
+              clientId: selectedClientId,
+              weekDayId: selectedDayId,
+              weekDayOptionId: selectedOptionId,
+              modality: resolvedModality,
+              quantity: quantityValue,
+              notes: notesValue,
+            };
       const created = await createOrder(input);
       onCreated(created);
     } catch (createError: unknown) {
@@ -387,13 +612,15 @@ export function OrderDrawer({
                     <input
                       type="checkbox"
                       checked={mediaVianda}
-                      onChange={(event) => setMediaVianda(event.target.checked)}
+                      onChange={(event) =>
+                        handleMediaViandaToggle(event.target.checked)
+                      }
                     />
                     Pedir como media vianda
                   </label>
                   <p>
                     {mediaVianda
-                      ? `Se cobra el 50% del precio de la opción elegida${offerModality ? ` (oferta ${MODALITY_LABELS[offerModality]})` : ""}.`
+                      ? "Se cobra el 50% del precio del plato o menú que elijas del catálogo."
                       : "La modalidad General u Opcional la define la opción de oferta que elijas."}
                   </p>
                   {mediaViandaBlocked && (
@@ -428,42 +655,175 @@ export function OrderDrawer({
                     </select>
                   </label>
 
-                  <label
-                    className={
-                      mediaVianda ? "order-field--highlight" : undefined
-                    }
-                  >
-                    Opción
-                    <select
-                      value={selectedOptionId}
-                      onChange={(event) =>
-                        handleOptionChange(event.target.value)
-                      }
-                      required
-                      disabled={!selectedDayId}
-                    >
-                      <option value="">Elegir opción…</option>
-                      {dayOptions.map((option) => {
-                        const name =
-                          option.optionType === "dish"
-                            ? option.dishVersion?.name
-                            : option.menuVersion?.name;
-                        const price =
-                          option.optionType === "dish"
-                            ? option.dishVersion?.price
-                            : option.menuVersion?.price;
-                        return (
-                          <option key={option.id} value={option.id}>
-                            {option.offerModality === "general"
-                              ? "General"
-                              : "Opcional"}{" "}
-                            · {option.optionType === "dish" ? "Plato" : "Menú"}:{" "}
-                            {name} — {formatCurrency(price ?? 0)}
-                          </option>
-                        );
-                      })}
-                    </select>
-                  </label>
+                  {!mediaVianda && (
+                    <label>
+                      Opción
+                      <select
+                        value={selectedOptionId}
+                        onChange={(event) =>
+                          handleOptionChange(event.target.value)
+                        }
+                        required
+                        disabled={!selectedDayId}
+                      >
+                        <option value="">Elegir opción…</option>
+                        {dayOptions.map((option) => {
+                          const name =
+                            option.optionType === "dish"
+                              ? option.dishVersion?.name
+                              : option.menuVersion?.name;
+                          const price =
+                            option.optionType === "dish"
+                              ? option.dishVersion?.price
+                              : option.menuVersion?.price;
+                          return (
+                            <option key={option.id} value={option.id}>
+                              {option.offerModality === "general"
+                                ? "General"
+                                : "Opcional"}{" "}
+                              ·{" "}
+                              {option.optionType === "dish" ? "Plato" : "Menú"}:{" "}
+                              {name} — {formatCurrency(price ?? 0)}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </label>
+                  )}
+
+                  {mediaVianda && (
+                    <div className="order-catalog-field">
+                      <span className="order-catalog-field__label">
+                        Producto del catálogo
+                      </span>
+                      {selectedCatalog ? (
+                        <div className="order-catalog-selected">
+                          <span className="order-catalog-selected__name">
+                            <span
+                              className={`order-option-chip order-option-chip--${selectedCatalog.type}`}
+                            >
+                              {selectedCatalog.type === "dish"
+                                ? "Plato"
+                                : "Menú"}
+                            </span>
+                            {selectedCatalog.name}
+                          </span>
+                          <span className="order-catalog-selected__price">
+                            {formatCurrency(selectedCatalog.price)}
+                          </span>
+                          <button type="button" onClick={handleClearCatalog}>
+                            Cambiar
+                          </button>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="order-catalog-toggle">
+                            <button
+                              type="button"
+                              className={
+                                catalogType === "dish" ? "is-active" : ""
+                              }
+                              onClick={() => handleCatalogTypeChange("dish")}
+                            >
+                              Platos
+                            </button>
+                            <button
+                              type="button"
+                              className={
+                                catalogType === "menu" ? "is-active" : ""
+                              }
+                              onClick={() => handleCatalogTypeChange("menu")}
+                            >
+                              Menús
+                            </button>
+                          </div>
+
+                          <input
+                            type="search"
+                            value={catalogQuery}
+                            onChange={(event) =>
+                              handleCatalogQueryChange(event.target.value)
+                            }
+                            placeholder={
+                              catalogType === "dish"
+                                ? "Buscar plato en el catálogo"
+                                : "Buscar menú en el catálogo"
+                            }
+                          />
+                          {catalogLoading && (
+                            <p className="order-hint">Buscando…</p>
+                          )}
+                          {!catalogLoading && catalogError && (
+                            <p className="order-hint order-hint--error">
+                              {catalogError}
+                            </p>
+                          )}
+                          {!catalogLoading &&
+                            !catalogError &&
+                            catalogType === "dish" &&
+                            catalogDishes.length === 0 && (
+                              <p className="order-hint">
+                                {catalogQuery.trim()
+                                  ? "Sin resultados."
+                                  : "No hay platos activos."}
+                              </p>
+                            )}
+                          {!catalogLoading &&
+                            !catalogError &&
+                            catalogType === "menu" &&
+                            catalogMenus.length === 0 && (
+                              <p className="order-hint">
+                                {catalogQuery.trim()
+                                  ? "Sin resultados."
+                                  : "No hay menús activos."}
+                              </p>
+                            )}
+
+                          {!catalogLoading &&
+                            catalogType === "dish" &&
+                            catalogDishes.length > 0 && (
+                              <ul className="order-catalog-results">
+                                {catalogDishes.map((dish) => (
+                                  <li key={dish.id}>
+                                    <span>{dish.name ?? "Sin nombre"}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handlePickDish(dish)}
+                                      disabled={resolvingCatalogId === dish.id}
+                                    >
+                                      {resolvingCatalogId === dish.id
+                                        ? "…"
+                                        : "Elegir"}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+
+                          {!catalogLoading &&
+                            catalogType === "menu" &&
+                            catalogMenus.length > 0 && (
+                              <ul className="order-catalog-results">
+                                {catalogMenus.map((menu) => (
+                                  <li key={menu.id}>
+                                    <span>{menu.name ?? "Sin nombre"}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handlePickMenu(menu)}
+                                      disabled={resolvingCatalogId === menu.id}
+                                    >
+                                      {resolvingCatalogId === menu.id
+                                        ? "…"
+                                        : "Elegir"}
+                                    </button>
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                        </>
+                      )}
+                    </div>
+                  )}
 
                   <label>
                     Cantidad
@@ -550,9 +910,10 @@ export function OrderDrawer({
                     type="submit"
                     disabled={
                       saving ||
-                      !selectedOptionId ||
+                      !selectedDayId ||
                       !selectedClientId ||
-                      mediaViandaBlocked
+                      mediaViandaBlocked ||
+                      (mediaVianda ? !selectedCatalog : !selectedOptionId)
                     }
                   >
                     {saving ? "Creando…" : "Crear pedido"}

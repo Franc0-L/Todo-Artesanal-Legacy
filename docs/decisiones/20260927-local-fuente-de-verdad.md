@@ -22,6 +22,11 @@ Al 2026-09-27 los dos historiales divergían:
 | Solo local (nunca aplicadas en remoto) | `20260924000005`, `20260924000006`, `20260926000001`, `20260926170000` |
 | Solo remoto (sin archivo en el repo)   | `20260924131042`, `20260924131127`, `20260926161458`, `20260926165602` |
 
+> **Estado actual (2026-09-29):** resuelto. El push aplicó el backlog
+> local en remoto y el historial quedó en sync; además se sumaron
+> `20260929000001_catalog_media_vianda.sql` y
+> `20260929000002_fix_media_vianda_text.sql`.
+
 Dos problemas:
 
 1. **Orden desfasado:** `20260926000001` es _anterior_ a

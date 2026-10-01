@@ -187,13 +187,14 @@ dos General ni dos Opcionales en el mismo día.
 
 Se guarda en el pedido, pero **la determina la opción elegida**:
 
-| Modalidad      | Significado                                                         |
-| -------------- | ------------------------------------------------------------------- |
-| `general`      | Pedido de la oferta General del día. Vianda completa.               |
-| `opcional`     | Pedido de la oferta Opcional del día. Vianda completa.              |
-| `media_vianda` | 50% de una vianda completa. **Única que el cliente puede agregar.** |
+| Modalidad      | Significado                                                                                                                |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `general`      | Pedido de la oferta General del día. Vianda completa.                                                                      |
+| `opcional`     | Pedido de la oferta Opcional del día. Vianda completa.                                                                     |
+| `media_vianda` | 50% de una vianda. **Única que el cliente puede agregar**; sale de la oferta del día o de cualquier producto del catálogo. |
 
-Ver `docs/decisiones/20260926-oferta-general-opcional.md`.
+Ver `docs/decisiones/20260926-oferta-general-opcional.md` y
+`docs/decisiones/20260929-media-vianda-catalogo.md`.
 
 ### Media vianda
 
@@ -202,8 +203,14 @@ Ver `docs/decisiones/20260926-oferta-general-opcional.md`.
 - Se calcula como `precio normal / 2`, usando la rama `general`.
 - No tiene precio especial propio.
 - Requiere `clients.allows_half_portion = true`.
-- Usa la misma opción de oferta que la modalidad base: solo cambia la
-  cantidad servida, no qué se ofrece.
+- Dos fuentes de producto:
+  - **oferta del día**: la misma opción que la modalidad base; solo cambia
+    la cantidad servida, no qué se ofrece;
+  - **catálogo**: cualquier plato o menú activo, aunque no esté en la
+    oferta de ese día (ver
+    `docs/decisiones/20260929-media-vianda-catalogo.md`).
+- El pedido siempre pertenece a un día (`orders.week_day_id`), en ambas
+  fuentes.
 
 ## Precios
 

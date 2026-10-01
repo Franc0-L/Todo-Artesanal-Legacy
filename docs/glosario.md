@@ -72,7 +72,7 @@ Oferta/pedido alternativo del día. Aplica el precio especial opcional del clien
 
 ### Media vianda
 
-Modalidad que representa 50% de una vianda completa. **No es** un tipo de plato ni una categoría de producto. Se calcula como `precio normal / 2`. Requiere `allows_half_portion` en el cliente.
+Modalidad que representa 50% de una vianda completa. **No es** un tipo de plato ni una categoría de producto. Se calcula como `precio normal / 2`. Requiere `allows_half_portion` en el cliente. Puede tomarse de la **oferta del día** (una de sus opciones) o de **cualquier plato o menú del catálogo** (ver `docs/decisiones/20260929-media-vianda-catalogo.md`); el pedido siempre queda atado a un día (`orders.week_day_id`).
 
 ## Precios
 

@@ -14,8 +14,11 @@ Esquema PostgreSQL de Todo Artesanal.
 - **Historial reconciliado el 2026-09-27** (decisión: gana el repo
   local): las 4 migraciones que solo existían en remoto fueron
   inspeccionadas y resultaron equivalentes a archivos locales, así que
-  se marcaron `reverted`. **Pendiente:** correr el `db push` de las 5
-  migraciones locales restantes — ver
+  se marcaron `reverted`. **Local y remoto en sync** (verificado con
+  `npx supabase migration list`): el `db push` de las 5 migraciones
+  locales ya se corrió y además se sumaron
+  `20260929000001_catalog_media_vianda.sql` y
+  `20260929000002_fix_media_vianda_text.sql`. Ver
   `docs/decisiones/20260927-local-fuente-de-verdad.md` y
   `docs/estado-fases-1-5.md` → "Divergencia local ↔ remoto → decisión
   tomada".
@@ -201,8 +204,8 @@ ventana de carrera.
 - `trg_validate_week_day_option_product_uniqueness` →
   `public.validate_week_day_option_product_uniqueness()` (security
   definer): un mismo plato o menú lógico no puede estar en dos días de
-  la misma semana.
-  ⚠️ Vive en `20260926000001`, que **no está aplicada en remoto**.
+  la misma semana. Aplicado en local y en remoto (push del 2026-09-29); la
+  consolidación `20260927000001` lo repone idempotentemente.
 
 ### `week_expected_clients` (población congelada)
 
@@ -281,19 +284,31 @@ plaintext solo lo recibe el admin en la respuesta, y se descarta.
 
 ### `orders` (pedidos)
 
-| Columna              | Tipo                         | Notas                                           |
-| -------------------- | ---------------------------- | ----------------------------------------------- |
-| `id`                 | uuid PK                      |                                                 |
-| `client_id`          | uuid FK → `clients`          | Sin cascade.                                    |
-| `week_day_option_id` | uuid FK → `week_day_options` | Sin cascade.                                    |
-| `modality`           | text                         | CHECK: `general` / `opcional` / `media_vianda`. |
-| `quantity`           | integer                      | Default 1. CHECK > 0.                           |
-| `applied_price`      | numeric(10,2)                | CHECK >= 0.                                     |
-| `notes`              | text null                    | Nota específica del pedido.                     |
-| `created_at`         | timestamptz                  |                                                 |
-| `updated_at`         | timestamptz                  |                                                 |
+| Columna              | Tipo                         | Notas                                                                           |
+| -------------------- | ---------------------------- | ------------------------------------------------------------------------------- |
+| `id`                 | uuid PK                      |                                                                                 |
+| `client_id`          | uuid FK → `clients`          | Sin cascade.                                                                    |
+| `week_day_id`        | uuid FK → `week_days`        | NOT NULL. El pedido siempre pertenece a un día (`orders_week_day_id_idx`).      |
+| `week_day_option_id` | uuid FK → `week_day_options` | Nullable: obligatoria salvo en la media vianda tomada del catálogo.             |
+| `dish_version_id`    | uuid FK → `dish_versions`    | Nullable. Plato del catálogo; solo media vianda (`orders_dish_version_id_idx`). |
+| `menu_version_id`    | uuid FK → `menu_versions`    | Nullable. Menú del catálogo; solo media vianda (`orders_menu_version_id_idx`).  |
+| `modality`           | text                         | CHECK: `general` / `opcional` / `media_vianda`.                                 |
+| `quantity`           | integer                      | Default 1. CHECK > 0.                                                           |
+| `applied_price`      | numeric(10,2)                | CHECK >= 0.                                                                     |
+| `notes`              | text null                    | Nota específica del pedido.                                                     |
+| `created_at`         | timestamptz                  |                                                                                 |
+| `updated_at`         | timestamptz                  |                                                                                 |
 
-**UNIQUE `(client_id, week_day_option_id, modality)`.**
+**CHECK `orders_product_source_check` — exactamente una fuente de
+producto:** `general`/`opcional` exigen `week_day_option_id` (y dejan los
+productos de catálogo en NULL); `media_vianda` apunta a _una_ de las tres
+(`week_day_option_id`, `dish_version_id`, `menu_version_id`).
+
+**UNIQUE `(client_id, week_day_option_id, modality)`.** Como la media
+vianda de catálogo deja `week_day_option_id` en NULL (y en Postgres los
+NULL no chocan entre sí), la unicidad se completa con dos **índices
+únicos parciales** por producto y día: `orders_catalog_dish_unique` y
+`orders_catalog_menu_unique` sobre `(client_id, week_day_id, <producto>)`.
 
 **Sin `on delete cascade` sobre `client_id` ni `week_day_option_id`:**
 preserva historial. Borrar un cliente con pedidos falla con FK violation.
@@ -308,10 +323,14 @@ preserva historial. Borrar un cliente con pedidos falla con FK violation.
      `opcional` la **normaliza** al valor de
      `week_day_options.offer_modality` de la opción elegida
      (`media_vianda` se conserva). Igual en local y en remoto;
-  2. valida semana activa + cliente esperado;
-  3. en INSERT congela `applied_price`;
-  4. en UPDATE rechaza cambios de campos inmutables
-     (`client_id`, `week_day_option_id`, `modality`, `applied_price`).
+  2. ubica el día desde `orders.week_day_id` y valida semana activa +
+     cliente esperado;
+  3. en INSERT congela `applied_price`: `calculate_order_price` (opción
+     de oferta) o `calculate_catalog_media_vianda_price` (50% del precio
+     normal cuando la media vianda viene del catálogo);
+  4. en UPDATE rechaza cambios de campos inmutables (`client_id`,
+     `week_day_id`, `week_day_option_id`, `dish_version_id`,
+     `menu_version_id`, `modality`, `applied_price`).
 - `orders_closed_protection`: rechaza mutaciones si la semana está `closed`.
 - `orders_no_cancellation`: rechaza el INSERT si hay cancelación del
   mismo cliente y día.
@@ -409,8 +428,8 @@ Igual que `orders`. El historial se preserva.
 ## Migraciones
 
 Archivo local → qué aporta. La **fila `Estado`** es el resultado de
-`npx supabase migration list` (2026-09-27, después de reconciliar el
-historial): ✅ aplicada en remoto, ⚠️ solo local en el historial.
+`npx supabase migration list`: ✅ aplicada en remoto. Desde el push del
+2026-09-29 **local y remoto están en sync** (ninguna fila queda en ⚠️).
 
 | Archivo                                                  | Contenido                                                                                                                                                                                                             | Estado |
 | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
@@ -423,12 +442,12 @@ historial): ✅ aplicada en remoto, ⚠️ solo local en el historial.
 | `20260924000002_week_rpc.sql`                            | `create_week`, `update_week`                                                                                                                                                                                          | ✅     |
 | `20260924000003_edge_function_grants.sql`                | Grants de `service_role` sobre `private`                                                                                                                                                                              | ✅     |
 | `20260924000004_admin_check_rpc.sql`                     | `is_user_admin` (RPC público)                                                                                                                                                                                         | ✅     |
-| `20260924000005_grant_admin_check_rpc_authenticated.sql` | `grant execute is_user_admin to authenticated` (efecto ya en prod vía `20260924131042`)                                                                                                                               | ⚠️     |
-| `20260924000006_restrict_admin_check_rpc_anon.sql`       | `revoke execute is_user_admin from anon` (efecto ya en prod vía `20260924131127`)                                                                                                                                     | ⚠️     |
-| `20260926000001_week_option_unique_product_per_week.sql` | Trigger + `activate_week`: producto único por semana (efecto ya en prod vía `20260926161458`)                                                                                                                         | ⚠️     |
+| `20260924000005_grant_admin_check_rpc_authenticated.sql` | `grant execute is_user_admin to authenticated` (efecto ya en prod vía `20260924131042`)                                                                                                                               | ✅     |
+| `20260924000006_restrict_admin_check_rpc_anon.sql`       | `revoke execute is_user_admin from anon` (efecto ya en prod vía `20260924131127`)                                                                                                                                     | ✅     |
+| `20260926000001_week_option_unique_product_per_week.sql` | Trigger + `activate_week`: producto único por semana (efecto ya en prod vía `20260926161458`)                                                                                                                         | ✅     |
 | `20260926165141_add_week_offer_modality.sql`             | `week_day_options.offer_modality`, UNIQUE por día, `activate_week` con ambas modalidades, `validate_order` en modo rechazo (reemplazada 5 min después)                                                                | ✅     |
-| `20260926170000_normalize_order_offer_modality.sql`      | `private.validate_order` en modo **normalización** de `modality` (mismo contenido que `20260926165602`, vigente en remoto)                                                                                            | ⚠️     |
-| `20260927000001_reconcile_local_source_of_truth.sql`     | **Consolidación**: `activate_week` fusionada (General/Opcional + producto único), `validate_order` normalizadora, trigger de unicidad, grants de `is_user_admin`, objetos de `offer_modality`, limpieza del duplicado | ⚠️     |
+| `20260926170000_normalize_order_offer_modality.sql`      | `private.validate_order` en modo **normalización** de `modality` (mismo contenido que `20260926165602`, vigente en remoto)                                                                                            | ✅     |
+| `20260927000001_reconcile_local_source_of_truth.sql`     | **Consolidación**: `activate_week` fusionada (General/Opcional + producto único), `validate_order` normalizadora, trigger de unicidad, grants de `is_user_admin`, objetos de `offer_modality`, limpieza del duplicado | ✅     |
 
 **Migraciones del dashboard, inspeccionadas y reparadas (2026-09-27):**
 `20260924131042`, `20260924131127`, `20260926161458`, `20260926165602`
@@ -436,17 +455,13 @@ historial): ✅ aplicada en remoto, ⚠️ solo local en el historial.
 `20260924000006`, `20260926000001`, `20260926170000`; se marcaron
 `reverted` y ya no aparecen en `migration list`.
 
-✅ = aplicada en remoto · ⚠️ = solo local en el historial (su efecto ya
-está en producción salvo para `20260927000001`, el único aporte nuevo
-del push).
+**El push ya se corrió** (2026-09-29): el backlog local quedó aplicado en
+remoto y el historial está en sync. Las altas posteriores de esa fecha:
 
-**Push pendiente** (con `--include-all`, obligatorio porque tres
-archivos son anteriores al último remoto):
-
-```bash
-npx supabase db push --dry-run --include-all   # 5 archivos
-npx supabase db push --include-all
-```
+| Archivo                                    | Contenido                                                                                                                                                         | Estado |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `20260929000001_catalog_media_vianda.sql`  | Media vianda desde el catálogo: `orders.week_day_id`, productos de catálogo, CHECK de fuente única, `calculate_catalog_media_vianda_price`, `validate_order` dual | ✅     |
+| `20260929000002_fix_media_vianda_text.sql` | Solo texto: repara el mojibake de los mensajes de error de la 0001 (sin cambios de lógica)                                                                        | ✅     |
 
 Procedimiento y verificación (dump de esquema remoto vs. local:
 estructura idéntica) en `docs/decisiones/20260927-local-fuente-de-verdad.md`.

@@ -323,7 +323,7 @@ El estado de carga/error de los listados se **deriva en el render**, no se sincr
 ## Pendientes de arquitectura
 
 - **UI de cliente en `/menu/:token`:** la sesión y los estados están; falta la UI de oferta y pedidos. Requiere que `getWeekOffer` / `listDayOptions` acepten un cliente Supabase propio, como `getActiveWeek`.
-- **Reconciliación de migraciones:** el historial local y remoto divergía (4 migraciones solo en local, 4 solo en remoto). **Decisión: gana el repo local.** Hecho el 2026-09-27: las 4 remotas se inspeccionaron (contenido equivalente a archivos locales) y se marcaron `reverted`; la consolidación `20260927000001` fija el estado final. **Pendiente:** correr `npx supabase db push --include-all`. Ver `docs/decisiones/20260927-local-fuente-de-verdad.md`.
+- **Reconciliación de migraciones:** el historial local y remoto divergía (4 migraciones solo en local, 4 solo en remoto). **Decisión: gana el repo local.** Hecho el 2026-09-27: las 4 remotas se inspeccionaron (contenido equivalente a archivos locales) y se marcaron `reverted`; la consolidación `20260927000001` fija el estado final. **Resuelto (2026-09-29):** se corrió `npx supabase db push --include-all` y local y remoto quedaron en sync (se sumaron `20260929000001` y `20260929000002`). Ver `docs/decisiones/20260927-local-fuente-de-verdad.md`.
 - **Realtime:** Supabase Realtime no está configurado. Cuando se agregue la UI de cliente, definir qué tablas se suscriben.
 - **Vistas o RPC de reportes:** varios servicios calculan agregados en cliente (dish-usage, order totals, historical weeks, dashboard). Migrar a vistas o RPC si el volumen crece.
 - **Revocación inmediata de JWT:** hoy un JWT emitido sigue válido hasta 1 h aunque el admin rote el link.
