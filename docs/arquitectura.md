@@ -77,6 +77,7 @@ Ambos llegan a las mismas tablas. La diferencia es:
 
 - Firma con la **signing key** del proyecto (`supabase gen signing-key --algorithm ES256`), **no** con `SUPABASE_JWT_SECRET` (que es HS256 y solo sirve para los tokens de Supabase Auth).
 - Secrets: `CLIENT_JWT_PRIVATE_KEY_JWK` + `CLIENT_JWT_KID`.
+- **Requisito operativo:** la signing key tiene que estar **activa** en el panel (Auth → Signing Keys) y su pública publicada en el JWKS del proyecto; si no, PostgREST rechaza el JWT con `PGRST301 "No suitable key was found to decode the JWT"`. La JWK privada se importa forzando `key_ops: ["sign"]` (jose le pasa `key_ops` a WebCrypto como _usages_ y una clave privada ECDSA solo admite `sign`). Ver `docs/decisiones/20261001-cliente-jwt-es256-signing-key.md`.
 - `verify_jwt = false` en `supabase/config.toml` para `authenticate-client-token`: la llamada llega sin el token de Supabase Auth (el propio link es la credencial).
 - El JWT vive en `sessionStorage` de la pestaña, guardado junto al `linkToken` que lo produjo (`todo-artesanal:client-session:v1`). Si el admin rota el link, la sesión vieja se descarta.
 - El provider lo renueva 60 s antes de expirar y `ClientMenuPage` usa un `sessionId` monotónico como clave de consulta para evitar parpadeos.

@@ -64,8 +64,9 @@ Deno.serve(async (req: Request) => {
     const privateKeyRaw = Deno.env.get("CLIENT_JWT_PRIVATE_KEY_JWK");
     const kid = Deno.env.get("CLIENT_JWT_KID");
 
-    // Diagnóstico operativo: indica QUÉ falta sin exponer valores.
-    // (Una vez identificado el problema conviene borrar este bloque.)
+    // Diagnóstico operativo: el error nombra QUÉ variable falta (sin
+    // exponer valores). Se mantiene a propósito: el fallo típico es un
+    // secret sin cargar, y un 500 genérico obliga a adivinar entre cuatro.
     if (!supabaseUrl || !serviceRoleKey || !privateKeyRaw || !kid) {
       const missing = [
         !supabaseUrl ? "SUPABASE_URL" : null,
