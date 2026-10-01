@@ -28,6 +28,13 @@ export interface OrderDetail extends Order {
     startDate: string;
     endDate: string;
   } | null;
+  /**
+   * Producto que consume el pedido. Puede venir de dos fuentes:
+   *
+   *  - oferta: la opción de oferta del día (id = week_day_option_id);
+   *  - catálogo: media vianda libre (id = dish/menu_version_id y
+   *    weekDayOptionId es null en el pedido).
+   */
   option: {
     id: string;
     type: OptionType;

@@ -1,0 +1,61 @@
+.cancelaciones-page { max-width: 1200px; margin: 0 auto; padding: 32px 24px 48px; }
+.cancelaciones-page__header { margin-bottom: 28px; }
+.cancelaciones-page__heading-row { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
+.cancelaciones-page__eyebrow { margin: 0 0 6px; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); }
+.cancelaciones-page h1 { margin: 0; font-size: clamp(1.8rem, 4vw, 2.35rem); color: var(--text-main); }
+.cancelaciones-page__description { margin: 8px 0 0; color: var(--text-muted); }
+.cancelaciones-primary-action { min-height: 42px; flex: 0 0 auto; padding: 9px 16px; border: 1px solid var(--primary); border-radius: 9px; background: var(--primary); color: var(--text-on-solid); font: inherit; font-weight: 700; cursor: pointer; }
+.cancelaciones-primary-action:hover:not(:disabled) { filter: brightness(0.97); }
+.cancelaciones-primary-action:disabled { cursor: not-allowed; opacity: 0.55; }
+.cancelaciones-primary-action:focus-visible { outline: 3px solid var(--primary-border); outline-offset: 2px; }
+.cancelaciones-toolbar { display: grid; grid-template-columns: repeat(2, minmax(160px, 1fr)); gap: 16px; align-items: end; margin-bottom: 20px; max-width: 560px; }
+.cancelaciones-filter { display: grid; gap: 6px; }
+.cancelaciones-filter label { font-size: 0.875rem; font-weight: 600; color: var(--text-body); }
+.cancelaciones-filter select { width: 100%; min-height: 40px; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--input-bg); color: var(--text-body); font: inherit; }
+.cancelaciones-filter select:focus, .cancelaciones-feedback button:focus-visible, .cancelaciones-pagination button:focus-visible, .cancellation-row button:focus-visible { outline: 3px solid var(--primary-border); outline-offset: 1px; }
+.cancelaciones-feedback button, .cancelaciones-pagination button { min-height: 40px; padding: 8px 14px; border: 1px solid var(--border-strong); border-radius: 8px; background: var(--bg-surface); color: var(--text-body); font: inherit; font-weight: 600; cursor: pointer; }
+.cancelaciones-feedback button:hover:not(:disabled), .cancelaciones-pagination button:hover:not(:disabled) { background: var(--bg-subtle); }
+.cancelaciones-feedback button:disabled, .cancelaciones-pagination button:disabled { cursor: not-allowed; opacity: 0.5; }
+.cancelaciones-list-wrapper { overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 12px; background: var(--bg-surface); }
+.cancelaciones-list-header, .cancellation-row { display: grid; grid-template-columns: minmax(160px, 1.4fr) minmax(140px, 1fr) minmax(120px, 0.9fr) minmax(90px, 0.6fr); align-items: center; }
+.cancelaciones-list-header { min-height: 48px; padding: 0 16px; background: var(--bg-subtle); color: var(--text-soft); font-size: 0.8rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; }
+.cancelaciones-list { margin: 0; padding: 0; list-style: none; }
+.cancelaciones-list li + li { border-top: 1px solid var(--border-subtle); }
+.cancellation-row { min-height: 64px; padding: 0 16px; color: var(--text-body); font-size: 0.9rem; }
+.cancellation-row > * { min-width: 0; overflow-wrap: anywhere; }
+.cancellation-row strong { font-weight: 700; color: var(--text-main); }
+.cancellation-row button { justify-self: end; min-height: 34px; padding: 6px 12px; border: 1px solid var(--danger-border); border-radius: 7px; background: var(--bg-surface); color: var(--danger-text); font: inherit; font-size: 0.8rem; font-weight: 700; cursor: pointer; }
+.cancellation-row button:hover:not(:disabled) { background: var(--danger-bg); }
+.cancellation-row button:disabled { cursor: not-allowed; opacity: 0.55; }
+.cancelaciones-feedback { margin: 0; padding: 32px 24px; text-align: center; color: var(--text-muted); }
+.cancelaciones-feedback h2, .cancelaciones-feedback p { margin: 0; }
+.cancelaciones-feedback h2 { color: var(--text-body); font-size: 1.05rem; }
+.cancelaciones-feedback p + button, .cancelaciones-feedback h2 + p { margin-top: 8px; }
+.cancelaciones-feedback--error { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; border: 1px solid var(--danger-border); border-radius: 10px; background: var(--danger-bg); color: var(--danger-text); text-align: left; }
+.cancelaciones-feedback--error p { margin: 0; }
+.cancelaciones-pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 16px; color: var(--text-muted); font-size: 0.9rem; }
+.cancelaciones-pagination > div { display: flex; gap: 8px; }
+.cancel-hint { margin: 0; color: var(--text-muted); font-size: 0.85rem; }
+.cancel-client-results { display: grid; gap: 6px; margin: 0 0 10px; padding: 0; list-style: none; max-height: 220px; overflow-y: auto; }
+.cancel-client-results li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--bg-subtle); font-size: 0.85rem; }
+.cancel-client-results li.is-selected { border-color: var(--primary); background: var(--primary-subtle); }
+.cancel-client-results li > span { min-width: 0; overflow-wrap: anywhere; font-weight: 600; color: var(--text-main); }
+.cancel-client-results li button { flex: 0 0 auto; min-height: 32px; padding: 5px 10px; border: 1px solid var(--border-strong); border-radius: 7px; background: var(--bg-surface); color: var(--text-body); font: inherit; font-size: 0.78rem; font-weight: 700; cursor: pointer; }
+.cancel-client-results li button:hover:not(:disabled) { background: var(--bg-hover); border-color: var(--primary-border); color: var(--primary); }
+.cancel-client-results li button:disabled { cursor: not-allowed; opacity: 0.6; }
+@media (max-width: 720px) {
+  .cancelaciones-page { padding: 24px 16px 36px; }
+  .cancelaciones-page__heading-row { flex-direction: column; }
+  .cancelaciones-primary-action { width: 100%; }
+  .cancelaciones-toolbar { grid-template-columns: 1fr; max-width: none; }
+  .cancelaciones-feedback--error, .cancelaciones-pagination { align-items: stretch; flex-direction: column; }
+  .cancelaciones-pagination > div { display: grid; grid-template-columns: 1fr 1fr; }
+  .cancelaciones-list-header { display: none; }
+  .cancelaciones-list-wrapper { border-radius: 10px; }
+  .cancelaciones-list li + li { border-top: 0; margin-top: 10px; }
+  .cancelaciones-list li:first-child { padding-top: 10px; }
+  .cancellation-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 16px; min-height: 0; padding: 16px; border: 1px solid var(--border-subtle); border-radius: 10px; }
+  .cancellation-row strong { grid-column: 1; font-size: 1rem; }
+  .cancellation-row button { grid-column: 2; grid-row: 1; }
+  .cancellation-row > span { grid-column: 1/-1; color: var(--text-muted); font-size: 0.85rem; }
+}

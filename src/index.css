@@ -1,14 +1,123 @@
 :root {
+  /* Tipografía */
   font-family:
     system-ui,
     -apple-system,
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  color: #1f2937;
-  background: #ffffff;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+
+  /* Modo Claro - Tokens Semánticos */
+  --bg-app: #f8fafc;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f1f5f9;
+  --bg-hover: #f1f5f9;
+
+  --border-subtle: #e2e8f0;
+  --border-strong: #cbd5e1;
+
+  --text-main: #0f172a;
+  --text-body: #1e293b;
+  --text-soft: #475569;
+  --text-muted: #64748b;
+  --text-inverse: #ffffff;
+  /* Texto sobre superficies sólidas de color (botones/badges primary, danger) */
+  --text-on-solid: #ffffff;
+
+  --accent: #0891b2;
+  --success-bg: #f0fdf4;
+  --success-text: #166534;
+  --success-border: #bbf7d0;
+
+  --primary: #1d4ed8;
+  --primary-hover: #1e40af;
+  --primary-subtle: #eff6ff;
+  --primary-border: #bfdbfe;
+  --primary-focus: #bfdbfe;
+
+  --badge-active-bg: #dcfce7;
+  --badge-active-text: #15803d;
+  --badge-neutral-bg: #f1f5f9;
+  --badge-neutral-text: #475569;
+  --badge-draft-bg: #fef3c7;
+  --badge-draft-text: #b45309;
+
+  --danger: #dc2626;
+  --danger-bg: #fef2f2;
+  --danger-border: #fecaca;
+  --danger-text: #991b1b;
+
+  --input-bg: #ffffff;
+  --input-border: #cbd5e1;
+  --input-text: #0f172a;
+
+  --drawer-bg: #ffffff;
+  --drawer-shadow: -12px 0 36px rgb(15 23 42 / 16%);
+  --modal-bg: #ffffff;
+  --backdrop-color: rgb(15 23 42 / 45%);
+
+  /* Patrón de fondo sutil (Light) */
+  --bg-pattern: radial-gradient(#cbd5e1 0.75px, transparent 0.75px);
+  --bg-pattern-size: 20px 20px;
+
+  color: var(--text-body);
+  background-color: var(--bg-surface);
+}
+
+[data-theme="dark"] {
+  /* Modo Oscuro - Tokens Semánticos */
+  --bg-app: #0b0f17;
+  --bg-surface: #131b2b;
+  --bg-subtle: #1a2438;
+  --bg-hover: #222f46;
+
+  --border-subtle: #243046;
+  --border-strong: #374661;
+
+  --text-main: #f8fafc;
+  --text-body: #e2e8f0;
+  --text-soft: #cbd5e1;
+  --text-muted: #94a3b8;
+  --text-inverse: #0f172a;
+  --text-on-solid: #ffffff;
+
+  --accent: #22d3ee;
+  --success-bg: #052e23;
+  --success-text: #6ee7b7;
+  --success-border: #065f46;
+
+  --primary: #3b82f6;
+  --primary-hover: #2563eb;
+  --primary-subtle: #1e2b45;
+  --primary-border: #2563eb;
+  --primary-focus: #60a5fa;
+
+  --badge-active-bg: #064e3b;
+  --badge-active-text: #6ee7b7;
+  --badge-neutral-bg: #1e293b;
+  --badge-neutral-text: #94a3b8;
+  --badge-draft-bg: #451a03;
+  --badge-draft-text: #fcd34d;
+
+  --danger: #ef4444;
+  --danger-bg: #450a0a;
+  --danger-border: #7f1d1d;
+  --danger-text: #fca5a5;
+
+  --input-bg: #101726;
+  --input-border: #2e3d57;
+  --input-text: #f8fafc;
+
+  --drawer-bg: #111827;
+  --drawer-shadow: -12px 0 40px rgb(0 0 0 / 65%);
+  --modal-bg: #141d2e;
+  --backdrop-color: rgb(0 0 0 / 70%);
+
+  /* Patrón de fondo sutil (Dark) */
+  --bg-pattern: radial-gradient(#24324a 0.85px, transparent 0.85px);
+  --bg-pattern-size: 20px 20px;
 }
 
 * {
@@ -22,10 +131,70 @@ body,
 }
 
 html {
-  background: #ffffff;
+  background-color: var(--bg-app);
 }
 
 body {
   margin: 0;
   min-width: 320px;
+  background-color: var(--bg-app);
+  background-image: var(--bg-pattern);
+  background-size: var(--bg-pattern-size);
+  color: var(--text-body);
+}
+
+/* =========================================================
+   Componente de Empty State Reutilizable con Mascota
+   ========================================================= */
+
+.app-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  gap: 16px;
+  border-radius: 14px;
+}
+
+.app-empty-state__mascot-wrapper {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px;
+  border-radius: 50%;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+}
+
+.app-empty-state__mascot {
+  width: 96px;
+  height: 96px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 6px rgba(0, 0, 0, 0.08));
+}
+
+.app-empty-state__content {
+  max-width: 440px;
+}
+
+.app-empty-state__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.app-empty-state__description {
+  margin: 8px 0 0;
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.app-empty-state__action {
+  margin-top: 8px;
 }

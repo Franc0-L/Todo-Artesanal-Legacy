@@ -1,3 +1,4 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { supabase } from "../../../lib/supabase";
 import {
   runSupabase,
@@ -5,6 +6,7 @@ import {
   runSupabaseOrThrow,
 } from "../../../lib/error-handler";
 import { AppError } from "../../../lib/errors";
+import type { Database } from "../../../types/database";
 import type { DayOfWeek, Modality, OptionType } from "../../../types/domain";
 import type { CreateOrderInput, UpdateOrderInput } from "../types/order";
 import type { OrderDetail } from "../types/order-detail";
@@ -14,17 +16,16 @@ import type { OrderTotals, OrderTotalsParams } from "../types/order-totals";
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 const MAX_PAGE_SIZE = 100;
+/** Lote usado por `listAllOrders` para recorrer todas las páginas. */
+const ALL_PAGE_SIZE = 100;
 
-/**
- * Select con enriquecimiento anidado:
- *   orders → clients
- *   orders → week_day_options → dish_versions | menu_versions
- *                              → week_days → weeks
- */
 const ORDER_DETAIL_SELECT = `
   id,
   client_id,
   week_day_option_id,
+  week_day_id,
+  dish_version_id,
+  menu_version_id,
   modality,
   quantity,
   applied_price,
@@ -32,28 +33,41 @@ const ORDER_DETAIL_SELECT = `
   created_at,
   updated_at,
   clients ( name, phone ),
+  week_days (
+    id,
+    date,
+    day_of_week,
+    weeks (
+      id,
+      start_date,
+      end_date
+    )
+  ),
+  dish_versions ( name ),
+  menu_versions ( name ),
   week_day_options (
     id,
     option_type,
     dish_versions ( name ),
-    menu_versions ( name ),
-    week_days (
-      id,
-      date,
-      day_of_week,
-      weeks (
-        id,
-        start_date,
-        end_date
-      )
-    )
+    menu_versions ( name )
+  )
+`;
+
+const ORDER_TOTALS_SELECT = `
+  quantity,
+  applied_price,
+  week_days (
+    week_id
   )
 `;
 
 interface OrderDetailRow {
   id: string;
   client_id: string;
-  week_day_option_id: string;
+  week_day_option_id: string | null;
+  week_day_id: string;
+  dish_version_id: string | null;
+  menu_version_id: string | null;
   modality: string;
   quantity: number;
   applied_price: number;
@@ -61,34 +75,42 @@ interface OrderDetailRow {
   created_at: string;
   updated_at: string;
   clients: { name: string; phone: string | null } | null;
+  week_days: {
+    id: string;
+    date: string;
+    day_of_week: number;
+    weeks: {
+      id: string;
+      start_date: string;
+      end_date: string;
+    } | null;
+  } | null;
+  dish_versions: { name: string } | null;
+  menu_versions: { name: string } | null;
   week_day_options: {
     id: string;
     option_type: string;
     dish_versions: { name: string } | null;
     menu_versions: { name: string } | null;
-    week_days: {
-      id: string;
-      date: string;
-      day_of_week: number;
-      weeks: {
-        id: string;
-        start_date: string;
-        end_date: string;
-      } | null;
-    } | null;
   } | null;
+}
+
+interface OrderTotalsRow {
+  quantity: number;
+  applied_price: number;
+  week_days: { week_id: string } | null;
 }
 
 export async function listOrders(
   params: OrderListParams = {},
+  client: SupabaseClient<Database> = supabase,
 ): Promise<OrderListResult> {
   const page = normalizePage(params.page);
   const pageSize = normalizePageSize(params.pageSize);
-
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
-  let query = supabase
+  let query = client
     .from("orders")
     .select(ORDER_DETAIL_SELECT, { count: "exact" })
     .order("created_at", { ascending: false })
@@ -101,22 +123,12 @@ export async function listOrders(
 
   if (params.weekId !== undefined) {
     validateUuid(params.weekId, "weekId");
-    // Filtro sobre recurso anidado: solo trae pedidos cuya
-    // week_day_option.week_day pertenezca a la semana dada.
-    query = query.filter(
-      "week_day_options.week_days.week_id",
-      "eq",
-      params.weekId,
-    );
+    query = query.filter("week_days.week_id", "eq", params.weekId);
   }
 
   if (params.weekDayId !== undefined) {
     validateUuid(params.weekDayId, "weekDayId");
-    query = query.filter(
-      "week_day_options.week_day_id",
-      "eq",
-      params.weekDayId,
-    );
+    query = query.eq("week_day_id", params.weekDayId);
   }
 
   if (params.modality !== undefined) {
@@ -134,63 +146,80 @@ export async function listOrders(
   };
 }
 
-export async function getOrder(orderId: string): Promise<OrderDetail> {
-  validateUuid(orderId, "orderId");
+/**
+ * Devuelve todos los pedidos que cumplen los filtros, sin paginar.
+ *
+ * La sección Pedidos agrupa por cliente y necesita la lista completa para
+ * subtotalizar bien: se pide por lotes usando el `total` exacto de la primera
+ * consulta (mismo criterio que historical-week-detail.service.ts).
+ */
+export async function listAllOrders(
+  params: Omit<OrderListParams, "page" | "pageSize"> = {},
+  client: SupabaseClient<Database> = supabase,
+): Promise<{ items: OrderDetail[]; total: number }> {
+  const firstPage = await listOrders(
+    {
+      ...params,
+      page: 1,
+      pageSize: ALL_PAGE_SIZE,
+    },
+    client,
+  );
+  const totalPages = Math.ceil(firstPage.total / ALL_PAGE_SIZE);
 
+  if (totalPages <= 1) {
+    return { items: firstPage.items, total: firstPage.total };
+  }
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: totalPages - 1 }, (_, index) =>
+      listOrders({ ...params, page: index + 2, pageSize: ALL_PAGE_SIZE }, client),
+    ),
+  );
+
+  return {
+    items: [
+      firstPage.items,
+      ...remainingPages.map((page) => page.items),
+    ].flat(),
+    total: firstPage.total,
+  };
+}
+
+export async function getOrder(
+  orderId: string,
+  client: SupabaseClient<Database> = supabase,
+): Promise<OrderDetail> {
+  validateUuid(orderId, "orderId");
   const row = await runSupabaseOrThrow<OrderDetailRow>(() =>
-    supabase
+    client
       .from("orders")
       .select(ORDER_DETAIL_SELECT)
       .eq("id", orderId)
       .maybeSingle(),
   );
-
   return mapOrderDetail(row);
 }
 
-/**
- * Crea un pedido.
- *
- * NO se manda applied_price: lo calcula el trigger
- * validate_order (BEFORE INSERT) invocando a
- * calculate_order_price. El trigger también valida:
- *  - semana activa;
- *  - cliente en week_expected_clients;
- *  - allows_half_portion si modality = media_vianda.
- *
- * Si el cliente ya tiene un pedido idéntico (mismo
- * client_id + week_day_option_id + modality), el UNIQUE de la
- * tabla lo rechaza (23505 → CONFLICT).
- */
 export async function createOrder(
   input: CreateOrderInput,
+  client: SupabaseClient<Database> = supabase,
 ): Promise<OrderDetail> {
   const payload = validateCreateOrderInput(input);
-
   const row = await runSupabaseOrThrow<OrderDetailRow>(() =>
-    supabase
+    client
       .from("orders")
       .insert(payload)
       .select(ORDER_DETAIL_SELECT)
       .single(),
   );
-
   return mapOrderDetail(row);
 }
 
-/**
- * Actualiza un pedido.
- *
- * Solo quantity y notes son editables (semántica (a) de Fase 4).
- * El trigger validate_order rechaza cambios sobre client_id,
- * week_day_option_id, modality y applied_price.
- *
- * Si la semana del pedido está en closed, el trigger
- * prevent_closed_order_mutation rechaza la operación.
- */
 export async function updateOrder(
   orderId: string,
   input: UpdateOrderInput,
+  client: SupabaseClient<Database> = supabase,
 ): Promise<OrderDetail> {
   validateUuid(orderId, "orderId");
   const payload = validateUpdateOrderInput(input);
@@ -203,49 +232,33 @@ export async function updateOrder(
   }
 
   const row = await runSupabaseOrThrow<OrderDetailRow>(() =>
-    supabase
+    client
       .from("orders")
       .update(payload)
       .eq("id", orderId)
       .select(ORDER_DETAIL_SELECT)
       .single(),
   );
-
   return mapOrderDetail(row);
 }
 
-/**
- * Elimina un pedido.
- *
- * Permitido mientras la semana no esté closed (lo valida el
- * trigger prevent_closed_order_mutation). Si la semana está
- * cerrada, la operación lanza BUSINESS_RULE.
- */
-export async function deleteOrder(orderId: string): Promise<void> {
+export async function deleteOrder(
+  orderId: string,
+  client: SupabaseClient<Database> = supabase,
+): Promise<void> {
   validateUuid(orderId, "orderId");
-
   await runSupabase<unknown>(() =>
-    supabase.from("orders").delete().eq("id", orderId),
+    client.from("orders").delete().eq("id", orderId),
   );
 }
 
-/**
- * Totales agregados de un conjunto de pedidos.
- *
- * El cálculo de totalAmount (SUM quantity × applied_price) se
- * hace en cliente. applied_price siempre es el precio
- * congelado del pedido, nunca recalculado.
- *
- * TODO: si el volumen de orders crece, migrar a vista o RPC
- * con SUM en PostgreSQL. Hoy el caso de uso típico ("totales
- * de una semana") está acotado a decenas o cientos de filas.
- */
 export async function getOrderTotals(
   params: OrderTotalsParams = {},
+  client: SupabaseClient<Database> = supabase,
 ): Promise<OrderTotals> {
-  let query = supabase
+  let query = client
     .from("orders")
-    .select("quantity, applied_price", { count: "exact" });
+    .select(ORDER_TOTALS_SELECT, { count: "exact" });
 
   if (params.clientId !== undefined) {
     validateUuid(params.clientId, "clientId");
@@ -254,20 +267,12 @@ export async function getOrderTotals(
 
   if (params.weekId !== undefined) {
     validateUuid(params.weekId, "weekId");
-    query = query.filter(
-      "week_day_options.week_days.week_id",
-      "eq",
-      params.weekId,
-    );
+    query = query.filter("week_days.week_id", "eq", params.weekId);
   }
 
   if (params.weekDayId !== undefined) {
     validateUuid(params.weekDayId, "weekDayId");
-    query = query.filter(
-      "week_day_options.week_day_id",
-      "eq",
-      params.weekDayId,
-    );
+    query = query.eq("week_day_id", params.weekDayId);
   }
 
   if (params.modality !== undefined) {
@@ -275,21 +280,16 @@ export async function getOrderTotals(
     query = query.eq("modality", params.modality);
   }
 
-  const result = await runSupabaseFull<
-    { quantity: number; applied_price: number }[]
-  >(() => query);
-
+  const result = await runSupabaseFull<OrderTotalsRow[]>(() => query);
   const rows = result.data ?? [];
 
   let totalQuantity = 0;
   let totalAmount = 0;
-
   for (const row of rows) {
     totalQuantity += row.quantity;
     totalAmount += row.quantity * row.applied_price;
   }
 
-  // Redondear a 2 decimales para evitar drift de float64.
   totalAmount = Math.round(totalAmount * 100) / 100;
 
   return {
@@ -299,14 +299,20 @@ export async function getOrderTotals(
   };
 }
 
-function validateCreateOrderInput(input: CreateOrderInput): {
+/** Fila que se inserta en orders (el trigger rellena applied_price). */
+type OrderInsertPayload = {
   client_id: string;
-  week_day_option_id: string;
+  week_day_id: string;
+  week_day_option_id?: string | null;
+  dish_version_id?: string;
+  menu_version_id?: string;
   modality: string;
   quantity: number;
   applied_price: number;
   notes: string | null;
-} {
+};
+
+function validateCreateOrderInput(input: CreateOrderInput): OrderInsertPayload {
   if (!input || typeof input !== "object") {
     throw new AppError(
       "VALIDATION_ERROR",
@@ -315,20 +321,50 @@ function validateCreateOrderInput(input: CreateOrderInput): {
   }
 
   validateUuid(input.clientId, "clientId");
-  validateUuid(input.weekDayOptionId, "weekDayOptionId");
   validateModality(input.modality);
   validateQuantity(input.quantity);
 
+  // Fuente de producto: la opción de oferta del día...
+  if ("weekDayOptionId" in input) {
+    validateUuid(input.weekDayOptionId, "weekDayOptionId");
+
+    return {
+      client_id: input.clientId,
+      week_day_id: input.weekDayId,
+      week_day_option_id: input.weekDayOptionId,
+      modality: input.modality,
+      quantity: input.quantity,
+      applied_price: 0,
+      notes: normalizeNullableString(input.notes),
+    };
+  }
+
+  // ...o el catálogo (solo media vianda; la exclusión mutua la garantiza
+  // CHECK orders_product_source_check y el tipo del input).
+  if ("dishVersionId" in input) {
+    validateUuid(input.dishVersionId, "dishVersionId");
+
+    return {
+      client_id: input.clientId,
+      week_day_option_id: null,
+      week_day_id: input.weekDayId,
+      dish_version_id: input.dishVersionId,
+      modality: input.modality,
+      quantity: input.quantity,
+      applied_price: 0,
+      notes: normalizeNullableString(input.notes),
+    };
+  }
+
+  validateUuid(input.menuVersionId, "menuVersionId");
+
   return {
     client_id: input.clientId,
-    week_day_option_id: input.weekDayOptionId,
+    week_day_option_id: null,
+    week_day_id: input.weekDayId,
+    menu_version_id: input.menuVersionId,
     modality: input.modality,
     quantity: input.quantity,
-    // Placeholder: el trigger validate_order (BEFORE INSERT)
-    // sobrescribe este valor con calculate_order_price(...)
-    // antes de persistir. El valor real nunca viene del cliente.
-    // Mandamos 0 porque TypeScript lo exige (NOT NULL sin
-    // default en el schema).
     applied_price: 0,
     notes: normalizeNullableString(input.notes),
   };
@@ -346,16 +382,13 @@ function validateUpdateOrderInput(input: UpdateOrderInput): {
   }
 
   const payload: { quantity?: number; notes?: string | null } = {};
-
   if (input.quantity !== undefined) {
     validateQuantity(input.quantity);
     payload.quantity = input.quantity;
   }
-
   if (input.notes !== undefined) {
     payload.notes = normalizeNullableString(input.notes);
   }
-
   return payload;
 }
 
@@ -377,46 +410,33 @@ function validateQuantity(value: number): void {
 function normalizeNullableString(
   value: string | null | undefined,
 ): string | null {
-  if (value === undefined || value === null) {
-    return null;
-  }
-
+  if (value === undefined || value === null) return null;
   if (typeof value !== "string") {
     throw new AppError("VALIDATION_ERROR", "El valor debe ser texto o null.");
   }
-
   const normalized = value.trim();
-
   return normalized || null;
 }
 
 function normalizePage(value: number | undefined): number {
-  if (value === undefined) {
-    return DEFAULT_PAGE;
-  }
-
+  if (value === undefined) return DEFAULT_PAGE;
   if (!Number.isInteger(value) || value < 1) {
     throw new AppError(
       "VALIDATION_ERROR",
       "page debe ser un entero mayor o igual a 1.",
     );
   }
-
   return value;
 }
 
 function normalizePageSize(value: number | undefined): number {
-  if (value === undefined) {
-    return DEFAULT_PAGE_SIZE;
-  }
-
+  if (value === undefined) return DEFAULT_PAGE_SIZE;
   if (!Number.isInteger(value) || value < 1 || value > MAX_PAGE_SIZE) {
     throw new AppError(
       "VALIDATION_ERROR",
       `pageSize debe ser un entero entre 1 y ${MAX_PAGE_SIZE}.`,
     );
   }
-
   return value;
 }
 
@@ -435,10 +455,8 @@ function validateUuid(value: string, fieldName: string): void {
 }
 
 function mapModality(value: string): Modality {
-  if (value === "general" || value === "opcional" || value === "media_vianda") {
+  if (value === "general" || value === "opcional" || value === "media_vianda")
     return value;
-  }
-
   throw new AppError(
     "DATABASE_ERROR",
     `La modalidad almacenada es inválida: ${value}.`,
@@ -446,10 +464,7 @@ function mapModality(value: string): Modality {
 }
 
 function mapOptionType(value: string): OptionType {
-  if (value === "dish" || value === "menu") {
-    return value;
-  }
-
+  if (value === "dish" || value === "menu") return value;
   throw new AppError(
     "DATABASE_ERROR",
     `El tipo de opción almacenado es inválido: ${value}.`,
@@ -457,10 +472,8 @@ function mapOptionType(value: string): OptionType {
 }
 
 function mapDayOfWeek(value: number): DayOfWeek {
-  if (value === 1 || value === 2 || value === 3 || value === 4 || value === 5) {
+  if (value === 1 || value === 2 || value === 3 || value === 4 || value === 5)
     return value;
-  }
-
   throw new AppError(
     "DATABASE_ERROR",
     `El día de la semana almacenado es inválido: ${value}.`,
@@ -469,23 +482,40 @@ function mapDayOfWeek(value: number): DayOfWeek {
 
 function mapOrderDetail(row: OrderDetailRow): OrderDetail {
   const wdo = row.week_day_options;
-  const wd = wdo?.week_days ?? null;
+  // El día se resuelve siempre desde orders.week_day_id: un pedido de
+  // catálogo no tiene week_day_options y su join anularía el contexto.
+  const wd = row.week_days ?? null;
   const week = wd?.weeks ?? null;
 
+  // El producto puede venir de la oferta del día (week_day_options) o
+  // del catálogo (media vianda libre, sin opción).
+  let optionId: string | null = wdo ? wdo.id : null;
+  let optionType: OptionType | null = null;
   let optionName: string | null = null;
 
   if (wdo) {
-    if (wdo.option_type === "dish") {
-      optionName = wdo.dish_versions?.name ?? null;
-    } else if (wdo.option_type === "menu") {
-      optionName = wdo.menu_versions?.name ?? null;
-    }
+    optionType = mapOptionType(wdo.option_type);
+    optionName =
+      optionType === "dish"
+        ? (wdo.dish_versions?.name ?? null)
+        : (wdo.menu_versions?.name ?? null);
+  } else if (row.dish_version_id) {
+    optionId = row.dish_version_id;
+    optionType = "dish";
+    optionName = row.dish_versions?.name ?? null;
+  } else if (row.menu_version_id) {
+    optionId = row.menu_version_id;
+    optionType = "menu";
+    optionName = row.menu_versions?.name ?? null;
   }
 
   return {
     id: row.id,
     clientId: row.client_id,
+    weekDayId: row.week_day_id,
     weekDayOptionId: row.week_day_option_id,
+    dishVersionId: row.dish_version_id,
+    menuVersionId: row.menu_version_id,
     modality: mapModality(row.modality),
     quantity: row.quantity,
     appliedPrice: row.applied_price,
@@ -496,25 +526,14 @@ function mapOrderDetail(row: OrderDetailRow): OrderDetail {
       ? { name: row.clients.name, phone: row.clients.phone }
       : null,
     weekDay: wd
-      ? {
-          id: wd.id,
-          date: wd.date,
-          dayOfWeek: mapDayOfWeek(wd.day_of_week),
-        }
+      ? { id: wd.id, date: wd.date, dayOfWeek: mapDayOfWeek(wd.day_of_week) }
       : null,
     week: week
-      ? {
-          id: week.id,
-          startDate: week.start_date,
-          endDate: week.end_date,
-        }
+      ? { id: week.id, startDate: week.start_date, endDate: week.end_date }
       : null,
-    option: wdo
-      ? {
-          id: wdo.id,
-          type: mapOptionType(wdo.option_type),
-          name: optionName,
-        }
-      : null,
+    option:
+      optionId !== null && optionType !== null
+        ? { id: optionId, type: optionType, name: optionName }
+        : null,
   };
 }

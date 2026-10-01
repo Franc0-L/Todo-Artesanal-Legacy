@@ -13,6 +13,7 @@ interface WeekExpectedClientWithClient {
   clients: {
     name: string;
     phone: string | null;
+    allows_half_portion: boolean;
   } | null;
 }
 
@@ -22,7 +23,8 @@ const WEEK_EXPECTED_CLIENT_SELECT = `
   created_at,
   clients (
     name,
-    phone
+    phone,
+    allows_half_portion
   )
 `;
 
@@ -91,6 +93,7 @@ function mapWeekExpectedClient(
       ? {
           name: row.clients.name,
           phone: row.clients.phone,
+          allowsHalfPortion: row.clients.allows_half_portion,
         }
       : null,
   };

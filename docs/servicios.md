@@ -18,6 +18,7 @@ Códigos de `AppError`:
 | ------------------ | ------------------------------------------------------------------- |
 | `VALIDATION_ERROR` | Input inválido (UUID, formato, rango).                              |
 | `NOT_FOUND`        | La fila pedida no existe.                                           |
+| `UNAUTHORIZED`     | Credencial del cliente inválida o expirada (link rotado/vencido).   |
 | `CONFLICT`         | UNIQUE violation (23505), FK violation (23503), exclusion (23P01).  |
 | `FORBIDDEN`        | RLS policy violada (PGRST301, 42501).                               |
 | `BUSINESS_RULE`    | Trigger de dominio rechazó (P0001). Mensaje en español del trigger. |
@@ -157,34 +158,36 @@ No existen `updateDishVersion` ni `deleteDishVersion`: las versiones son inmutab
 
 ### `weeks.service.ts`
 
-| Función         | Firma                                                 | Descripción                                                                             |
-| --------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `listWeeks`     | `(params?: WeekListParams) → Promise<WeekListResult>` | Filtro por `status` + paginación. Ordena por `start_date DESC`.                         |
-| `getWeek`       | `(weekId) → Promise<Week>`                            | Una semana.                                                                             |
-| `getActiveWeek` | `() → Promise<Week \| null>`                          | Semana activa, o null si no hay.                                                        |
-| `createWeek`    | `(input: CreateWeekInput) → Promise<Week>`            | RPC `create_week`. Crea semana + 5 días en una transacción. Valida lunes-viernes.       |
-| `updateWeek`    | `(weekId, input: UpdateWeekInput) → Promise<Week>`    | RPC `update_week`. Solo `draft`. **Borra las opciones de oferta existentes** (cascade). |
-| `activateWeek`  | `(weekId) → Promise<void>`                            | RPC `activate_week`. Valida oferta completa, congela `week_expected_clients`.           |
-| `closeWeek`     | `(weekId) → Promise<void>`                            | RPC `close_week`. `active → closed`. Terminal.                                          |
+| Función         | Firma                                                         | Descripción                                                                                                                                                         |
+| --------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listWeeks`     | `(params?: WeekListParams) → Promise<WeekListResult>`         | Filtro por `status` + paginación. Ordena por `start_date DESC`.                                                                                                     |
+| `getWeek`       | `(weekId) → Promise<Week>`                                    | Una semana.                                                                                                                                                         |
+| `getActiveWeek` | `(client?: SupabaseClient<Database>) → Promise<Week \| null>` | Semana activa, o null si no hay. **Acepta un cliente Supabase propio**: se reutiliza desde admin y desde `/menu/:token` (el JWT del cliente define vía RLS qué ve). |
+| `createWeek`    | `(input: CreateWeekInput) → Promise<Week>`                    | RPC `create_week`. Crea semana + 5 días en una transacción. Valida lunes-viernes.                                                                                   |
+| `updateWeek`    | `(weekId, input: UpdateWeekInput) → Promise<Week>`            | RPC `update_week`. Solo `draft`. **Borra las opciones de oferta existentes** (cascade).                                                                             |
+| `activateWeek`  | `(weekId) → Promise<void>`                                    | RPC `activate_week`. Valida oferta completa, congela `week_expected_clients`.                                                                                       |
+| `closeWeek`     | `(weekId) → Promise<void>`                                    | RPC `close_week`. `active → closed`. Terminal.                                                                                                                      |
+| `deleteWeek`    | `(weekId) → Promise<void>`                                    | `DELETE` directo. Solo funciona en semanas sin operaciones (FK desde orders/cancellations).                                                                         |
 
 ### `week-days.service.ts`
 
-| Función        | Firma                            | Descripción                         |
-| -------------- | -------------------------------- | ----------------------------------- |
-| `listWeekDays` | `(weekId) → Promise<WeekDay[]>`  | 5 días ordenados por `day_of_week`. |
-| `getWeekDay`   | `(weekDayId) → Promise<WeekDay>` | Un día.                             |
+| Función               | Firma                                   | Descripción                                                                                           |
+| --------------------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `listWeekDays`        | `(weekId) → Promise<WeekDay[]>`         | 5 días ordenados por `day_of_week` (incluye `cutoffAt`).                                              |
+| `getWeekDay`          | `(weekDayId) → Promise<WeekDay>`        | Un día.                                                                                               |
+| `updateWeekDayCutoff` | `(weekDayId, cutoffAt) → Promise<void>` | Mueve el corte de horario del día (ISO con offset). Permitido hasta `closed` (trigger de protección). |
 
-No existen `createWeekDay` / `updateWeekDay` / `deleteWeekDay`. Los días solo se manejan vía `create_week` y `update_week`.
+No existen `createWeekDay` / `deleteWeekDay`. Los días se **crean** solo vía `create_week` y `update_week`; la única edición es `updateWeekDayCutoff` (configuración del corte, sin recrear días ni tocar opciones).
 
 ### `week-offer.service.ts`
 
-| Función           | Firma                                                              | Descripción                                                                                             |
-| ----------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `listDayOptions`  | `(weekDayId) → Promise<WeekDayOption[]>`                           | Opciones de un día.                                                                                     |
-| `getWeekOffer`    | `(weekId) → Promise<WeekOffer>`                                    | Todos los días con sus opciones agrupadas.                                                              |
-| `addDayOption`    | `(input: AddDayOptionInput) → Promise<WeekDayOption>`              | Discriminated union: `{ optionType: 'dish', dishVersionId }` o `{ optionType: 'menu', menuVersionId }`. |
-| `updateDayOption` | `(optionId, input: UpdateDayOptionInput) → Promise<WeekDayOption>` | Cambia la versión referenciada. No cambia de dish a menu.                                               |
-| `removeDayOption` | `(optionId) → Promise<void>`                                       | Rechaza si tiene pedidos asociados (trigger).                                                           |
+| Función           | Firma                                                              | Descripción                                                                                                                                                                             |
+| ----------------- | ------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listDayOptions`  | `(weekDayId) → Promise<WeekDayOption[]>`                           | Opciones de un día (incluye `offerModality`).                                                                                                                                           |
+| `getWeekOffer`    | `(weekId) → Promise<WeekOffer>`                                    | Todos los días con sus opciones agrupadas. **Usa el cliente Supabase por defecto**: para reutilizarlo en `/menu/:token` hay que parametrizarlo como `getActiveWeek`.                    |
+| `addDayOption`    | `(input: AddDayOptionInput) → Promise<WeekDayOption>`              | Discriminated union: `{ optionType: 'dish', dishVersionId }` o `{ optionType: 'menu', menuVersionId }`. `offerModality: 'general' \| 'opcional'` define la modalidad de oferta del día. |
+| `updateDayOption` | `(optionId, input: UpdateDayOptionInput) → Promise<WeekDayOption>` | Cambia la versión referenciada y/o `offerModality`. No cambia de dish a menu.                                                                                                           |
+| `removeDayOption` | `(optionId) → Promise<void>`                                       | Rechaza si tiene pedidos asociados (trigger).                                                                                                                                           |
 
 ### `week-expected-clients.service.ts`
 
@@ -199,14 +202,15 @@ No existen `createWeekDay` / `updateWeekDay` / `deleteWeekDay`. Los días solo s
 
 ### `orders.service.ts`
 
-| Función          | Firma                                                       | Descripción                                                                                                           |
-| ---------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| `listOrders`     | `(params: OrderListParams) → Promise<OrderListResult>`      | Filtros `clientId`, `weekId`, `weekDayId`, `modality` + paginación. Cada item es `OrderDetail` con contexto completo. |
-| `getOrder`       | `(orderId) → Promise<OrderDetail>`                          | Un pedido con contexto.                                                                                               |
-| `createOrder`    | `(input: CreateOrderInput) → Promise<OrderDetail>`          | **No** envía `applied_price`; el trigger lo calcula. UNIQUE triplete rechaza duplicados.                              |
-| `updateOrder`    | `(orderId, input: UpdateOrderInput) → Promise<OrderDetail>` | Solo `quantity` y `notes`. Resto inmutable.                                                                           |
-| `deleteOrder`    | `(orderId) → Promise<void>`                                 | Permitido si la semana no está `closed`.                                                                              |
-| `getOrderTotals` | `(params: OrderTotalsParams) → Promise<OrderTotals>`        | `{ orderCount, totalQuantity, totalAmount }` de un conjunto filtrado.                                                 |
+| Función          | Firma                                                                               | Descripción                                                                                                                                                                                                                                                                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listOrders`     | `(params: OrderListParams) → Promise<OrderListResult>`                              | Filtros `clientId`, `weekId`, `weekDayId`, `modality` + paginación. Cada item es `OrderDetail` con contexto completo.                                                                                                                                                                                                                          |
+| `listAllOrders`  | `(params: Omit<OrderListParams, "page" \| "pageSize">) → Promise<{ items, total }>` | Igual que `listOrders` pero recorre todas las páginas (lotes de 100). Lo usa el listado de Pedidos, que agrupa por cliente y no pagina.                                                                                                                                                                                                        |
+| `getOrder`       | `(orderId) → Promise<OrderDetail>`                                                  | Un pedido con contexto.                                                                                                                                                                                                                                                                                                                        |
+| `createOrder`    | `(input: CreateOrderInput) → Promise<OrderDetail>`                                  | `CreateOrderInput` es una **unión discriminada**: oferta (`clientId`, `weekDayOptionId`, `modality`) o media vianda de catálogo (`clientId`, `weekDayId`, `dishVersionId`/`menuVersionId`, `modality: 'media_vianda'`). **No** envía `applied_price` (ni `week_day_id`): el trigger los calcula. UNIQUE/índices parciales rechazan duplicados. |
+| `updateOrder`    | `(orderId, input: UpdateOrderInput) → Promise<OrderDetail>`                         | Solo `quantity` y `notes`. Resto inmutable.                                                                                                                                                                                                                                                                                                    |
+| `deleteOrder`    | `(orderId) → Promise<void>`                                                         | Permitido si la semana no está `closed`.                                                                                                                                                                                                                                                                                                       |
+| `getOrderTotals` | `(params: OrderTotalsParams) → Promise<OrderTotals>`                                | `{ orderCount, totalQuantity, totalAmount }` de un conjunto filtrado.                                                                                                                                                                                                                                                                          |
 
 ---
 
@@ -235,31 +239,101 @@ No existe `updateCancellation`: es un hecho histórico inmutable.
 | `getClientHistory`     | `(clientId, params?: ClientHistoryParams) → Promise<ClientHistoryResult>`       | Pedidos y cancelaciones del cliente agrupados por semana. Incluye semanas `active` y `closed`. Filtros `fromDate` / `toDate`. Paginación sobre semanas, no sobre pedidos. |
 | `getUnansweredClients` | `(weekId, params?: UnansweredClientsParams) → Promise<UnansweredClientsResult>` | Clientes esperados sin pedido ni cancelación. Parte de `week_expected_clients`, no de `clients.active`.                                                                   |
 
+### `historical-week-detail.service.ts`
+
+| Función                   | Firma                                      | Descripción                                                                                                                                                                      |
+| ------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getHistoricalWeekDetail` | `(weekId) → Promise<HistoricalWeekDetail>` | Una semana con sus días, opciones (resolviendo versiones), pedidos y cancelaciones. Trae **todas** las páginas (no la primera nada más). Vista drill-down de `/admin/historial`. |
+
+---
+
+## auth
+
+### `auth.service.ts`
+
+| Función                | Firma                                | Descripción                                                          |
+| ---------------------- | ------------------------------------ | -------------------------------------------------------------------- |
+| `getAuthenticatedUser` | `() => Promise<User \| null>`        | Usuario GoTrue actual.                                               |
+| `isCurrentUserAdmin`   | `() => Promise<boolean>`             | RPC `is_user_admin`. Solo UX: la barrera real es RLS.                |
+| `signInAdmin`          | `(email, password) => Promise<User>` | `signInWithPassword`. Chequea admin y lanza `FORBIDDEN` si no lo es. |
+| `signOutAdmin`         | `() => Promise<void>`                | Cierra la sesión GoTrue.                                             |
+
+---
+
+## dashboard
+
+### `dashboard.service.ts`
+
+| Función               | Firma                            | Descripción                                                                                                                                                                                                  |
+| --------------------- | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `getDashboardSummary` | `() → Promise<DashboardSummary>` | Consolida semana activa, totales de pedidos, clientes esperados, sin responder, cancelaciones y conteos de catálogo. Cada bloque con `Promise.allSettled`: si uno falla, el resto del panel sigue sirviendo. |
+
+---
+
+## menu (acceso del cliente)
+
+### `client-auth.service.ts`
+
+| Función                   | Firma                                  | Descripción                                                                                                                                                                                                                                                                                       |
+| ------------------------- | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `authenticateClientToken` | `(linkToken) → Promise<ClientSession>` | Valida el formato (`LINK_TOKEN_PATTERN`), llama a la Edge Function `authenticate-client-token`, persiste la sesión y devuelve `{ accessToken, clientId, expiresAt }`. Lanza `AppError("UNAUTHORIZED")` si el link no sirve y `AppError("DATABASE_ERROR" \| "UNKNOWN_ERROR")` si falla la llamada. |
+| `readStoredSession`       | `(linkToken) → ClientSession \| null`  | Síncrono. Lee `sessionStorage` (`todo-artesanal:client-session:v1`). **Devuelve null si el `linkToken` guardado no coincide** (rotación del admin).                                                                                                                                               |
+| `storeSession`            | `(session) => void`                    | Síncrono. Guarda `{ linkToken, accessToken, clientId, expiresAt }` en `sessionStorage` de la pestaña.                                                                                                                                                                                             |
+| `clearStoredSession`      | `() => void`                           | Síncrono. Borra la sesión (link inválido, rotado o `reauthenticate()`).                                                                                                                                                                                                                           |
+
+No usa `setSession`: el JWT ES256 no tiene usuario GoTrue ni refresh token. El cliente Supabase se crea con `createClientWithToken(accessToken)` (`src/lib/supabase.ts`), y el provider renueva el JWT 60 s antes de expirar.
+
+### `menu-pricing.service.ts`
+
+| Función             | Firma                                                     | Descripción                                                                                                                                                                                                                                                                                                 |
+| ------------------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `getEffectivePrice` | `(input: EffectivePriceInput, client?) → Promise<number>` | `EffectivePriceInput = { weekDayOptionId?, dishVersionId?, menuVersionId?, modality }`. Llama al RPC `calculate_my_order_price`, que exige **exactamente una** fuente de producto y resuelve la identidad con `private.current_client_id()`. **Solo UX**: el precio definitivo lo congela `validate_order`. |
+
+### `menu-catalog.service.ts`
+
+| Función             | Firma                                | Descripción                                                                                                                                                                                                                                                           |
+| ------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `listClientCatalog` | `(client?) → Promise<CatalogItem[]>` | Catálogo activo para la media vianda libre. RPC `list_client_catalog` (`security definer`): el RLS de cliente no expone `dishes` / `menus`, así que esa es la única vía. `CatalogItem = { type: 'dish' \| 'menu', productId, versionId, name }`. **No** trae precios. |
+
 ---
 
 ## RPCs invocados por servicios
 
-| RPC                   | Servicio                | Devuelve |
-| --------------------- | ----------------------- | -------- |
-| `create_menu`         | `menus.service`         | `uuid`   |
-| `create_menu_version` | `menu-versions.service` | `uuid`   |
-| `create_week`         | `weeks.service`         | `uuid`   |
-| `update_week`         | `weeks.service`         | `void`   |
-| `activate_week`       | `weeks.service`         | `void`   |
-| `close_week`          | `weeks.service`         | `void`   |
+| RPC                        | Servicio                | Devuelve  |
+| -------------------------- | ----------------------- | --------- |
+| `create_menu`              | `menus.service`         | `uuid`    |
+| `create_menu_version`      | `menu-versions.service` | `uuid`    |
+| `create_week`              | `weeks.service`         | `uuid`    |
+| `update_week`              | `weeks.service`         | `void`    |
+| `activate_week`            | `weeks.service`         | `void`    |
+| `close_week`               | `weeks.service`         | `void`    |
+| `is_user_admin`            | `auth.service`          | `boolean` |
+| `calculate_my_order_price` | `menu-pricing.service`  | `numeric` |
+| `list_client_catalog`      | `menu-catalog.service`  | filas     |
 
 ---
 
 ## Edge Functions invocadas por servicios
 
-| Edge Function         | Servicio                | Devuelve                              |
-| --------------------- | ----------------------- | ------------------------------------- |
-| `rotate-client-token` | `client-tokens.service` | `{ token: string, clientId: string }` |
+| Edge Function               | Servicio                | Devuelve                                                       |
+| --------------------------- | ----------------------- | -------------------------------------------------------------- |
+| `rotate-client-token`       | `client-tokens.service` | `{ token: string, clientId: string }`                          |
+| `authenticate-client-token` | `client-auth.service`   | `{ accessToken: string, clientId: string, expiresIn: number }` |
 
 ---
 
 ## Pendientes
 
-- **Emisión de JWT para clientes:** falta la Edge Function que valida el token personal (hash) y emite un JWT con claim `client_id`. Sin ella, `/menu/:token` no puede operar contra Supabase con las policies de cliente actuales.
-- **Vistas o RPC de reportes:** varios servicios calculan agregados en cliente (`dish-usage`, `order-totals`, `history`). Migrar a vistas o RPC si el volumen crece.
-- **Realtime:** sin suscripciones configuradas. Cuando se agregue UI, definir tablas a suscribir.
+- **`getWeekOffer` / `listDayOptions` parametrizables (hecho):** aceptan un
+  `SupabaseClient` opcional, como `getActiveWeek`. Igual en `listOrders` /
+  `listAllOrders` / `getOrder` / `createOrder` / `updateOrder` /
+  `deleteOrder` / `getOrderTotals`, `listCancellations` /
+  `getCancellation` / `createCancellation` / `deleteCancellation`,
+  `listWeekDays` / `getWeekDay`, `getClient`, `getEffectivePrice` y
+  `listClientCatalog`. Es lo que usa `/menu/:token`.
+- **Vistas o RPC de reportes:** varios servicios calculan agregados en
+  cliente (`dish-usage`, `order-totals`, `history`, `historical-week-detail`
+  pagina de a 20). Migrar a vistas o RPC si el volumen crece.
+- **Realtime:** no se usa. La UI de cliente ya existe (`/menu/:token`) y
+  refresca por `reload()`. Si algún día hace falta push real, definir
+  tablas a suscribir.

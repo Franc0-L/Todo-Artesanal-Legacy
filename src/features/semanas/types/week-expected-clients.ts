@@ -14,6 +14,12 @@ export interface WeekExpectedClient {
   client: {
     name: string;
     phone: string | null;
+    /**
+     * Habilita la modalidad media_vianda para este cliente. Se lee del
+     * cliente actual; la validación definitiva la hace la DB al crear el
+     * pedido (`allows_half_portion` en calculate_order_price).
+     */
+    allowsHalfPortion: boolean;
   } | null;
 }
 

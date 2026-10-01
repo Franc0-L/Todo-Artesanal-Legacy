@@ -1,8 +1,11 @@
+import { AppRouter } from "./app/AppRouter";
+import { AuthProvider } from "./features/auth/AuthProvider";
+
 function App() {
   return (
-    <main>
-      <h1>Todo Artesanal</h1>
-    </main>
+    <AuthProvider>
+      <AppRouter />
+    </AuthProvider>
   );
 }
 

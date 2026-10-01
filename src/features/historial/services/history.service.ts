@@ -46,9 +46,7 @@ interface OrderAggRow {
   client_id: string;
   quantity: number;
   applied_price: number;
-  week_day_options: {
-    week_days: { week_id: string } | null;
-  } | null;
+  week_days: { week_id: string } | null;
 }
 
 interface CancellationAggRow {
@@ -65,7 +63,10 @@ interface ExpectedAggRow {
 interface ClientOrderRow {
   id: string;
   client_id: string;
-  week_day_option_id: string;
+  week_day_option_id: string | null;
+  week_day_id: string;
+  dish_version_id: string | null;
+  menu_version_id: string | null;
   modality: string;
   quantity: number;
   applied_price: number;
@@ -73,22 +74,24 @@ interface ClientOrderRow {
   created_at: string;
   updated_at: string;
   clients: { name: string; phone: string | null } | null;
+  week_days: {
+    id: string;
+    date: string;
+    day_of_week: number;
+    weeks: {
+      id: string;
+      start_date: string;
+      end_date: string;
+      status: string;
+    } | null;
+  } | null;
+  dish_versions: { name: string } | null;
+  menu_versions: { name: string } | null;
   week_day_options: {
     id: string;
     option_type: string;
     dish_versions: { name: string } | null;
     menu_versions: { name: string } | null;
-    week_days: {
-      id: string;
-      date: string;
-      day_of_week: number;
-      weeks: {
-        id: string;
-        start_date: string;
-        end_date: string;
-        status: string;
-      } | null;
-    } | null;
   } | null;
 }
 
@@ -127,6 +130,9 @@ const CLIENT_ORDER_SELECT = `
   id,
   client_id,
   week_day_option_id,
+  week_day_id,
+  dish_version_id,
+  menu_version_id,
   modality,
   quantity,
   applied_price,
@@ -134,22 +140,24 @@ const CLIENT_ORDER_SELECT = `
   created_at,
   updated_at,
   clients ( name, phone ),
+  week_days (
+    id,
+    date,
+    day_of_week,
+    weeks (
+      id,
+      start_date,
+      end_date,
+      status
+    )
+  ),
+  dish_versions ( name ),
+  menu_versions ( name ),
   week_day_options (
     id,
     option_type,
     dish_versions ( name ),
-    menu_versions ( name ),
-    week_days (
-      id,
-      date,
-      day_of_week,
-      weeks (
-        id,
-        start_date,
-        end_date,
-        status
-      )
-    )
+    menu_versions ( name )
   )
 `;
 
@@ -234,14 +242,8 @@ export async function listHistoricalWeeks(
       runSupabase<OrderAggRow[]>(() =>
         supabase
           .from("orders")
-          .select(
-            "id,client_id,quantity,applied_price,week_day_options ( week_days ( week_id ) )",
-          )
-          .filter(
-            "week_day_options.week_days.week_id",
-            "in",
-            `(${weekIds.join(",")})`,
-          ),
+          .select("id,client_id,quantity,applied_price,week_days ( week_id )")
+          .filter("week_days.week_id", "in", `(${weekIds.join(",")})`),
       ),
       runSupabase<CancellationAggRow[]>(() =>
         supabase
@@ -282,7 +284,7 @@ export async function listHistoricalWeeks(
   }
 
   for (const o of ordersResult ?? []) {
-    const wid = o.week_day_options?.week_days?.week_id;
+    const wid = o.week_days?.week_id;
     if (!wid) continue;
 
     const agg = aggByWeek.get(wid);
@@ -410,7 +412,7 @@ export async function getClientHistory(
   const weekMap = new Map<string, WeekBucket>();
 
   for (const o of ordersResult ?? []) {
-    const wd = o.week_day_options?.week_days;
+    const wd = o.week_days;
     const week = wd?.weeks;
     if (!week) continue;
 
@@ -533,7 +535,7 @@ export async function getUnansweredClients(
         supabase
           .from("orders")
           .select("client_id")
-          .filter("week_day_options.week_days.week_id", "eq", weekId),
+          .filter("week_days.week_id", "eq", weekId),
       ),
       runSupabase<{ client_id: string }[]>(() =>
         supabase
@@ -695,23 +697,39 @@ function mapDayOfWeek(value: number): DayOfWeek {
 
 function mapHistoryOrderDetail(row: ClientOrderRow): OrderDetail {
   const wdo = row.week_day_options;
-  const wd = wdo?.week_days ?? null;
+  // El día se resuelve desde orders.week_day_id: los pedidos de media
+  // vianda tomados del catálogo no tienen week_day_options.
+  const wd = row.week_days ?? null;
   const week = wd?.weeks ?? null;
 
+  // El producto puede venir de la oferta del día o del catálogo.
+  let optionId: string | null = wdo ? wdo.id : null;
+  let optionType: OptionType | null = null;
   let optionName: string | null = null;
 
   if (wdo) {
-    if (wdo.option_type === "dish") {
-      optionName = wdo.dish_versions?.name ?? null;
-    } else if (wdo.option_type === "menu") {
-      optionName = wdo.menu_versions?.name ?? null;
-    }
+    optionType = mapOptionType(wdo.option_type);
+    optionName =
+      optionType === "dish"
+        ? (wdo.dish_versions?.name ?? null)
+        : (wdo.menu_versions?.name ?? null);
+  } else if (row.dish_version_id) {
+    optionId = row.dish_version_id;
+    optionType = "dish";
+    optionName = row.dish_versions?.name ?? null;
+  } else if (row.menu_version_id) {
+    optionId = row.menu_version_id;
+    optionType = "menu";
+    optionName = row.menu_versions?.name ?? null;
   }
 
   return {
     id: row.id,
     clientId: row.client_id,
+    weekDayId: row.week_day_id,
     weekDayOptionId: row.week_day_option_id,
+    dishVersionId: row.dish_version_id,
+    menuVersionId: row.menu_version_id,
     modality: mapModality(row.modality),
     quantity: row.quantity,
     appliedPrice: row.applied_price,
@@ -735,13 +753,10 @@ function mapHistoryOrderDetail(row: ClientOrderRow): OrderDetail {
           endDate: week.end_date,
         }
       : null,
-    option: wdo
-      ? {
-          id: wdo.id,
-          type: mapOptionType(wdo.option_type),
-          name: optionName,
-        }
-      : null,
+    option:
+      optionId !== null && optionType !== null
+        ? { id: optionId, type: optionType, name: optionName }
+        : null,
   };
 }
 
