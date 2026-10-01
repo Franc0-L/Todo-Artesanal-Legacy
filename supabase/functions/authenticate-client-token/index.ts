@@ -64,11 +64,22 @@ Deno.serve(async (req: Request) => {
     const privateKeyRaw = Deno.env.get("CLIENT_JWT_PRIVATE_KEY_JWK");
     const kid = Deno.env.get("CLIENT_JWT_KID");
 
+    // Diagnóstico operativo: indica QUÉ falta sin exponer valores.
+    // (Una vez identificado el problema conviene borrar este bloque.)
     if (!supabaseUrl || !serviceRoleKey || !privateKeyRaw || !kid) {
-      console.error(
-        "Missing env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, CLIENT_JWT_PRIVATE_KEY_JWK o CLIENT_JWT_KID",
+      const missing = [
+        !supabaseUrl ? "SUPABASE_URL" : null,
+        !serviceRoleKey ? "SUPABASE_SERVICE_ROLE_KEY" : null,
+        !privateKeyRaw ? "CLIENT_JWT_PRIVATE_KEY_JWK" : null,
+        !kid ? "CLIENT_JWT_KID" : null,
+      ].filter((name): name is string => name !== null);
+
+      console.error("Missing env vars:", missing.join(","));
+
+      return errorResponse(
+        `Configuración del servidor incompleta: falta ${missing.join(", ")}`,
+        500,
       );
-      return errorResponse("Configuración del servidor incompleta", 500);
     }
 
     let body: AuthenticateRequestBody;
@@ -105,7 +116,10 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (tokenError) {
-      console.error("Token lookup failed:", tokenError.message);
+      console.error(
+        "authenticate-client-token: token lookup failed:",
+        tokenError.message,
+      );
       return errorResponse("Error al validar el token", 500);
     }
 
@@ -122,28 +136,72 @@ Deno.serve(async (req: Request) => {
     // de negocio fuera de su única fuente de verdad (prompt.md §4, §14).
     let privateKeyJwk: JsonWebKey;
     try {
-      privateKeyJwk = JSON.parse(privateKeyRaw);
+      const parsed = JSON.parse(privateKeyRaw) as JsonWebKey;
+
+      if (!parsed.d) {
+        console.error(
+          "authenticate-client-token: la JWK no es privada (falta 'd')",
+        );
+        return errorResponse(
+          "Configuración del servidor incompleta: JWK sin parte privada",
+          500,
+        );
+      }
+
+      // La privada generada por `supabase gen signing-key` trae
+      // key_ops=["sign","verify"]. jose descarta `alg` y `use` al importar,
+      // pero NO `key_ops`: se lo pasa a WebCrypto como usages, y una clave
+      // privada ECDSA solo admite "sign" → "Invalid key usage".
+      // Se pisa key_ops para dejar únicamente "sign".
+      privateKeyJwk = { ...parsed, key_ops: ["sign"] };
     } catch {
-      console.error("CLIENT_JWT_PRIVATE_KEY_JWK no es JSON válido");
-      return errorResponse("Configuración del servidor incompleta", 500);
+      console.error(
+        "authenticate-client-token: CLIENT_JWT_PRIVATE_KEY_JWK no es JSON válido",
+      );
+      return errorResponse(
+        "Configuración del servidor incompleta: JWK inválida",
+        500,
+      );
     }
 
-    const privateKey = await importJWK(privateKeyJwk, JWT_ALG);
-    const now = Math.floor(Date.now() / 1000);
+    let privateKey;
+    try {
+      privateKey = await importJWK(privateKeyJwk, JWT_ALG);
+    } catch (err) {
+      console.error(
+        "authenticate-client-token: importJWK falló:",
+        err instanceof Error ? err.message : String(err),
+      );
+      return errorResponse(
+        "Configuración del servidor incompleta: JWK no importable",
+        500,
+      );
+    }
 
-    // sub se omite a propósito: no hay una fila en auth.users que
-    // impersonar. private.current_client_id() lee el claim client_id, no
-    // sub, así que auth.uid() simplemente da null para un cliente — y
-    // ninguna policy de cliente depende de auth.uid().
-    const accessToken = await new SignJWT({
-      role: "authenticated",
-      aud: "authenticated",
-      client_id: clientId,
-    })
-      .setProtectedHeader({ alg: JWT_ALG, typ: "JWT", kid })
-      .setIssuedAt(now)
-      .setExpirationTime(now + JWT_EXPIRY_SECONDS)
-      .sign(privateKey);
+    let accessToken: string;
+    try {
+      const now = Math.floor(Date.now() / 1000);
+
+      // sub se omite a propósito: no hay una fila en auth.users que
+      // impersonar. private.current_client_id() lee el claim client_id, no
+      // sub, así que auth.uid() simplemente da null para un cliente — y
+      // ninguna policy de cliente depende de auth.uid().
+      accessToken = await new SignJWT({
+        role: "authenticated",
+        aud: "authenticated",
+        client_id: clientId,
+      })
+        .setProtectedHeader({ alg: JWT_ALG, typ: "JWT", kid })
+        .setIssuedAt(now)
+        .setExpirationTime(now + JWT_EXPIRY_SECONDS)
+        .sign(privateKey);
+    } catch (err) {
+      console.error(
+        "authenticate-client-token: firma ES256 falló:",
+        err instanceof Error ? err.message : String(err),
+      );
+      return errorResponse("Error al emitir la sesión", 500);
+    }
 
     const response: AuthenticateResponse = {
       accessToken,
