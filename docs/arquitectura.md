@@ -244,8 +244,8 @@ flowchart TD
 flowchart TD
     B[Cliente en /menu/:token] -->|POST /functions/v1/authenticate-client-token<br/>body: { token }| EF2[Edge Function<br/>verify_jwt = false]
     EF2 -->|1. sha256(token)| DB2[(PostgreSQL)]
-    EF2 -->|2. valido y no vencido?| DB2
-    EF2 -->|3. firma ES256<br/>sub = client_id, ttl 1h| K[Signing key +<br/>CLIENT_JWT_PRIVATE_KEY_JWK / _KID]
+    EF2 -->|2. vigente (no invalidado)?| DB2
+    EF2 -->|3. firma ES256<br/>claim client_id, ttl 1h| K[Signing key +<br/>CLIENT_JWT_PRIVATE_KEY_JWK / _KID]
     EF2 -->|4. { accessToken, clientId, expiresIn }| B
 ```
 
