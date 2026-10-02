@@ -2,8 +2,9 @@
 
 Resumen operativo del dominio de Todo Artesanal.
 
-**Fuente de verdad:** `docs/prompt.md` (contrato completo). Este documento
-es una síntesis de trabajo, sin las decisiones de implementación.
+**Fuente de verdad:** el código y `supabase/migrations/`. El contrato original
+está archivado en `docs/historico/prompt.md`. Este documento es una síntesis
+de trabajo, sin las decisiones de implementación.
 
 ## Separación fundamental
 
@@ -293,7 +294,7 @@ usuario. Hay **dos credenciales en juego**:
 
 ## Invariantes del sistema
 
-Las 11 originales de `prompt.md` §36:
+Las 11 originales del contrato (`docs/historico/prompt.md` §36):
 
 1. `media_vianda` no es un tipo de plato.
 2. Un menú puede tener 0, 1 o N guarniciones.

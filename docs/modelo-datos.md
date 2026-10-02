@@ -7,21 +7,10 @@ Esquema PostgreSQL de Todo Artesanal.
   `week_day_options`, `week_expected_clients`, `client_prices`,
   `client_product_prices`, `client_tokens`, `orders`, `cancellations`.
 - **1 tabla en `private`**: `admin_users`.
-- **Fuente de verdad**: `supabase/migrations/` — `20260923000001_schema.sql`
-  (DDL base) **más todas las migraciones posteriores**, que son las que
-  terminaron de dar forma al esquema real (p. ej. `offer_modality` no está
-  en el archivo base).
-- **Historial reconciliado el 2026-09-27** (decisión: gana el repo
-  local): las 4 migraciones que solo existían en remoto fueron
-  inspeccionadas y resultaron equivalentes a archivos locales, así que
-  se marcaron `reverted`. **Local y remoto en sync** (verificado con
-  `npx supabase migration list`): el `db push` de las 5 migraciones
-  locales ya se corrió y además se sumaron
-  `20260929000001_catalog_media_vianda.sql` y
-  `20260929000002_fix_media_vianda_text.sql`. Ver
-  `docs/decisiones/20260927-local-fuente-de-verdad.md` y
-  `docs/estado-fases-1-5.md` → "Divergencia local ↔ remoto → decisión
-  tomada".
+- **Fuente de verdad**: `supabase/migrations/` — **6 archivos por
+  responsabilidad** (consolidados 2026-10-02) que reproducen el esquema final
+  (validado: `db reset` + `pg_dump --schema-only` diff = 0 diferencias). Ver
+  "Migraciones" más abajo.
 
 ## Diagrama entidad-relación
 
@@ -214,8 +203,7 @@ ventana de carrera.
 - `trg_validate_week_day_option_product_uniqueness` →
   `public.validate_week_day_option_product_uniqueness()` (security
   definer): un mismo plato o menú lógico no puede estar en dos días de
-  la misma semana. Aplicado en local y en remoto (push del 2026-09-29); la
-  consolidación `20260927000001` lo repone idempotentemente.
+  la misma semana.
 
 ### `week_expected_clients` (población congelada)
 
@@ -437,49 +425,19 @@ Igual que `orders`. El historial se preserva.
 
 ## Migraciones
 
-Archivo local → qué aporta. La **fila `Estado`** es el resultado de
-`npx supabase migration list`: ✅ aplicada en remoto. Desde el push del
-2026-09-29 **local y remoto están en sync** (ninguna fila queda en ⚠️).
+Las migraciones son **6 archivos por responsabilidad** (consolidados
+2026-10-02). Reproducen exactamente el esquema final: `db reset` + diff de
+`pg_dump --schema-only` contra la baseline = **0 diferencias**.
 
-| Archivo                                                  | Contenido                                                                                                                                                                                                             | Estado |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `20260923000001_schema.sql`                              | DDL completo (15 tablas + `private.admin_users`)                                                                                                                                                                      | ✅     |
-| `20260923000002_functions.sql`                           | `calculate_order_price`, `activate_week`, `close_week`                                                                                                                                                                | ✅     |
-| `20260923000003_triggers.sql`                            | Inmutabilidad, validaciones, protección de semanas `closed`                                                                                                                                                           | ✅     |
-| `20260923000004_rls.sql`                                 | RLS, policies, grants                                                                                                                                                                                                 | ✅     |
-| `20260923000005_admin_setup.sql`                         | INSERT del primer admin (comentado)                                                                                                                                                                                   | ✅     |
-| `20260924000001_menu_rpc.sql`                            | `create_menu`, `create_menu_version`                                                                                                                                                                                  | ✅     |
-| `20260924000002_week_rpc.sql`                            | `create_week`, `update_week`                                                                                                                                                                                          | ✅     |
-| `20260924000003_edge_function_grants.sql`                | Grants de `service_role` sobre `private`                                                                                                                                                                              | ✅     |
-| `20260924000004_admin_check_rpc.sql`                     | `is_user_admin` (RPC público)                                                                                                                                                                                         | ✅     |
-| `20260924000005_grant_admin_check_rpc_authenticated.sql` | `grant execute is_user_admin to authenticated` (efecto ya en prod vía `20260924131042`)                                                                                                                               | ✅     |
-| `20260924000006_restrict_admin_check_rpc_anon.sql`       | `revoke execute is_user_admin from anon` (efecto ya en prod vía `20260924131127`)                                                                                                                                     | ✅     |
-| `20260926000001_week_option_unique_product_per_week.sql` | Trigger + `activate_week`: producto único por semana (efecto ya en prod vía `20260926161458`)                                                                                                                         | ✅     |
-| `20260926165141_add_week_offer_modality.sql`             | `week_day_options.offer_modality`, UNIQUE por día, `activate_week` con ambas modalidades, `validate_order` en modo rechazo (reemplazada 5 min después)                                                                | ✅     |
-| `20260926170000_normalize_order_offer_modality.sql`      | `private.validate_order` en modo **normalización** de `modality` (mismo contenido que `20260926165602`, vigente en remoto)                                                                                            | ✅     |
-| `20260927000001_reconcile_local_source_of_truth.sql`     | **Consolidación**: `activate_week` fusionada (General/Opcional + producto único), `validate_order` normalizadora, trigger de unicidad, grants de `is_user_admin`, objetos de `offer_modality`, limpieza del duplicado | ✅     |
+| Archivo                            | Qué aporta                                                              |
+| ---------------------------------- | ----------------------------------------------------------------------- |
+| `20261002000001_schema`            | schemas, 15 tablas + `private.admin_users`, constraints, índices, RLS   |
+| `20261002000002_functions_private` | 17 funciones de `private` (helpers de identidad + trigger fns) y grants |
+| `20261002000003_triggers`          | 17 triggers de dominio + su función de soporte                          |
+| `20261002000004_rls`               | 30 policies (frontera de seguridad)                                     |
+| `20261002000005_rpc_admin`         | RPCs de admin/catálogo/precio interno                                   |
+| `20261002000006_rpc_client`        | RPCs de cliente (`security definer`)                                    |
 
-**Migraciones del dashboard, inspeccionadas y reparadas (2026-09-27):**
-`20260924131042`, `20260924131127`, `20260926161458`, `20260926165602`
-— su contenido es **equivalente** a los archivos `20260924000005`,
-`20260924000006`, `20260926000001`, `20260926170000`; se marcaron
-`reverted` y ya no aparecen en `migration list`.
-
-**El push ya se corrió** (2026-09-29): el backlog local quedó aplicado en
-remoto y el historial está en sync. Las altas posteriores de esa fecha:
-
-| Archivo                                    | Contenido                                                                                                                                                         | Estado |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `20260929000001_catalog_media_vianda.sql`  | Media vianda desde el catálogo: `orders.week_day_id`, productos de catálogo, CHECK de fuente única, `calculate_catalog_media_vianda_price`, `validate_order` dual | ✅     |
-| `20260929000002_fix_media_vianda_text.sql` | Solo texto: repara el mojibake de los mensajes de error de la 0001 (sin cambios de lógica)                                                                        | ✅     |
-
-**Altas del 2026-10-01** (push corrido el mismo día; `migration list` en sync):
-
-| Archivo                                     | Contenido                                                                                                  | Estado |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------ |
-| `20261001000001_client_effective_price.sql` | RPC `calculate_my_order_price`: precio efectivo del cliente, identidad desde `private.current_client_id()` | ✅     |
-| `20261001000002_client_catalog.sql`         | RPC `list_client_catalog`: catálogo completo para la media vianda del cliente                              | ✅     |
-| `20261001000003_week_day_cutoff.sql`        | "Fuera de horario": `week_days.cutoff_at` NOT NULL, default 20:00 día anterior, triggers de corte clientes | ✅     |
-
-Procedimiento y verificación (dump de esquema remoto vs. local:
-estructura idéntica) en `docs/decisiones/20260927-local-fuente-de-verdad.md`.
+Incluye desde el esquema base: `offer_modality` (General/Opcional), producto
+único por semana, `validate_order` en modo normalización, `week_day_id` en
+`orders`/`cancellations` y `week_days.cutoff_at` (fuera de horario).

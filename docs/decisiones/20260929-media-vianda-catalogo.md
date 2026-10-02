@@ -84,15 +84,13 @@ por cliente/día se mantiene igual.
 
 ## Migraciones
 
-- `20260929000001_catalog_media_vianda.sql` — estructura, precio, triggers
-  y backfill de `week_day_id`.
-- `20260929000002_fix_media_vianda_text.sql` — corrige el texto de 6
-  mensajes de error que quedaron con mojibake al escribir la anterior.
-- Rollback: `supabase/rollback/20260929000001_catalog_media_vianda.sql`
-  (falla a propósito si ya hay pedidos de catálogo, porque no tienen opción
-  a la que volver).
+- `20261002000001_schema.sql` — estructura, `orders.week_day_id` y CHECK de
+  fuente única.
+- `20261002000002/0003` — `calculate_catalog_media_vianda_price`,
+  `validate_order` dual y los triggers de protección.
+- `20261002000005_rpc_admin.sql` — grants del precio de catálogo.
 
-Ambas están aplicadas en local y en remoto.
+Todo esto viaja en la cadena consolidada (6 archivos, 2026-10-02).
 
 ## UI
 

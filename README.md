@@ -145,58 +145,31 @@ npm run preview     # sirve el build de producción local
 
 ### Migraciones
 
-Las migraciones viven en `supabase/migrations/` y se aplican con:
+Las migraciones viven en `supabase/migrations/` y son **6 archivos por
+responsabilidad** (consolidados 2026-10-02; reproducen el esquema final,
+validado con `db reset` + `pg_dump --schema-only` diff = 0 diferencias):
+
+| #   | Archivo                            | Responsabilidad                                                       |
+| --- | ---------------------------------- | --------------------------------------------------------------------- |
+| 1   | `20261002000001_schema`            | schemas, 15 tablas + `private.admin_users`, constraints, índices, RLS |
+| 2   | `20261002000002_functions_private` | 17 funciones de `private` (helpers + trigger fns) y sus grants        |
+| 3   | `20261002000003_triggers`          | 17 triggers de dominio + su función de soporte                        |
+| 4   | `20261002000004_rls`               | 30 policies (frontera de seguridad)                                   |
+| 5   | `20261002000005_rpc_admin`         | RPCs de admin/catálogo/precio interno                                 |
+| 6   | `20261002000006_rpc_client`        | RPCs de cliente (`security definer`)                                  |
+
+Se aplican contra un proyecto Supabase linkeado con:
 
 ```bash
-npx supabase db push
+npx supabase db push --dry-run   # revisar primero
+npx supabase db push --yes
 ```
 
-> ⚠️ **Primero `npx supabase migration list`.** Historial **reconciliado
-> el 2026-09-27** bajo la decisión "gana el repo local"
-> (`docs/decisiones/20260927-local-fuente-de-verdad.md`): las 4
-> migraciones que solo existían en remoto (dashboard) se inspeccionaron
-> —su contenido es equivalente a archivos locales— y se marcaron
-> `reverted`.
->
-> **Falta correr el push** de las 5 migraciones pendientes. Ojo: hay que
-> usar `--include-all`, si no el CLI se niega porque `000005`, `000006`
-> y `000001` son anteriores al último remoto aplicado:
->
-> ```bash
-> npx supabase db push --dry-run --include-all   # revisar las 5 líneas
-> npx supabase db push --include-all
-> ```
->
-> No activar semanas mientras se empuja (ventana transitoria en
-> `activate_week`; detalle en la decisión).
-
-Estado al 2026-09-27 (`✅` = aplicada en remoto, `⚠️` = solo local en el
-historial — en general su efecto ya está en producción, ver columna):
-
-| #   | Archivo                                                  | Contenido                                                         | Estado |
-| --- | -------------------------------------------------------- | ----------------------------------------------------------------- | ------ |
-| 1   | `20260923000001_schema.sql`                              | 15 tablas + `private.admin_users`                                 | ✅     |
-| 2   | `20260923000002_functions.sql`                           | `calculate_order_price`, `activate_week`, `close_week`            | ✅     |
-| 3   | `20260923000003_triggers.sql`                            | Inmutabilidad, validaciones, protección de semanas `closed`       | ✅     |
-| 4   | `20260923000004_rls.sql`                                 | RLS, policies, grants                                             | ✅     |
-| 5   | `20260923000005_admin_setup.sql`                         | INSERT del primer admin (comentado)                               | ✅     |
-| 6   | `20260924000001_menu_rpc.sql`                            | `create_menu`, `create_menu_version`                              | ✅     |
-| 7   | `20260924000002_week_rpc.sql`                            | `create_week`, `update_week`                                      | ✅     |
-| 8   | `20260924000003_edge_function_grants.sql`                | Grants de `service_role` sobre `private`                          | ✅     |
-| 9   | `20260924000004_admin_check_rpc.sql`                     | `is_user_admin` (RPC público)                                     | ✅     |
-| 10  | `20260924000005_grant_admin_check_rpc_authenticated.sql` | Grant de `is_user_admin` a `authenticated` (efecto ya en prod)    | ⚠️     |
-| 11  | `20260924000006_restrict_admin_check_rpc_anon.sql`       | Revocación a `anon` (efecto ya en prod)                           | ⚠️     |
-| 12  | `20260926000001_week_option_unique_product_per_week.sql` | Producto único por semana (efecto ya en prod)                     | ⚠️     |
-| 13  | `20260926165141_add_week_offer_modality.sql`             | `offer_modality`, unicidad General/Opcional por día, validaciones | ✅     |
-| 14  | `20260926170000_normalize_order_offer_modality.sql`      | `validate_order` en modo normalización (efecto ya en prod)        | ⚠️     |
-| 15  | `20260927000001_reconcile_local_source_of_truth.sql`     | **Consolidación**: fija el estado final local (ver decisión)      | ⚠️     |
-
-Las 4 migraciones que faltaban en el repo (`20260924131042`,
-`20260924131127`, `20260926161458`, `20260926165602`) se aplicaron desde
-el dashboard con timestamps propios; **ya fueron inspeccionadas el
-2026-09-27** (contenido equivalente a los archivos 10, 11, 12 y 14 de
-esta tabla) y se marcaron `reverted` en el historial. Único cambio
-real que aporta el push: la `activate_week` fusionada (fila 15).
+> ⚠️ **No correr `db push` contra el proyecto remoto actual**
+> (`dnkgmwyrvhkablbzsofb`): conserva la cadena vieja (20 migraciones) y
+> divergiría. La cadena consolidada se aplica sobre un proyecto Supabase
+> **nuevo** (rearranque); `migration list` mostrará las 6 como "solo local"
+> hasta entonces.
 
 ### Regenerar tipos TypeScript
 
@@ -292,7 +265,7 @@ npm run build       # compilación completa
 Toda la documentación está en `docs/` (índice completo en
 `docs/README.md`):
 
-- **`prompt.md`** — Contrato completo del proyecto (histórico, no se actualiza).
+- **`historico/prompt.md`** — Contrato completo del proyecto (histórico, no se actualiza).
 - **`estado-fases-1-5.md`** — Estado consolidado: qué está hecho, inventario de migraciones/servicios/UI y pendientes.
 - **`arquitectura.md`** — Capas, patrones de datos, Edge Functions y diagramas.
 - **`dominio.md`** — Conceptos, invariantes y reglas del negocio.
@@ -342,9 +315,9 @@ Ver `docs/flujos.md` para el detalle de cada paso.
 
 ### Próximo
 
-- [x] **Reconciliación de migraciones** — historial alineado y push corrido
-      (2026-09-29); local y remoto en sync. Aplicada además
-      `20261001000001_client_effective_price.sql` (RPC de precio del cliente).
+- [x] **Migraciones consolidadas** (2026-10-02) en 6 archivos por
+      responsabilidad; la narrativa de la reconciliación previa quedó
+      archivada en `docs/historico/`.
 - [x] Verificar el camino de éxito del JWT con un enlace real (hecho 2026-10-01)
 - [x] UI de oferta y pedidos en `/menu/:token`
 - [x] Media vianda desde el catálogo para el cliente (RPC

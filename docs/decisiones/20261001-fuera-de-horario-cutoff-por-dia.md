@@ -1,7 +1,7 @@
 # Decisión de dominio — Fuera de horario con corte por día
 
 > **Fecha:** 2026-10-01 · **Fase:** 6 (UI de cliente)
-> **Implementación:** `supabase/migrations/20261001000003_week_day_cutoff.sql`
+> **Implementación:** cadena consolidada — `20261002000001_schema.sql` (columna y default) + `20261002000002/0003` (triggers)
 
 ## Regla
 
@@ -56,7 +56,7 @@ ROW):
 1. `private.current_client_id()` nulo → sin corte (admin, `service_role`,
    scripts).
 2. El día sale de `week_day_id` (NOT NULL en ambas tablas desde
-   `20260929000001`; la media vianda de catálogo no tiene opción de oferta).
+   `20261002000001_schema`; la media vianda de catálogo no tiene opción de oferta).
 3. `now() > cutoff_at` → `raise exception 'Fuera de horario: …'` (P0001 →
    `AppError("BUSINESS_RULE")` en el frontend).
 

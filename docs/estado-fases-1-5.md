@@ -444,15 +444,9 @@ Detalle completo en `docs/decisiones/20260926-oferta-general-opcional.md`.
   modalidad la determina `week_day_options.offer_modality` de la opción
   elegida. El trigger `private.validate_order` garantiza esa
   consistencia **normalizando** (`new.modality := offer_modality`):
-  - Local `20260926170000` y remoto `20260926165602`
-    (`normalize_order_offer_modality`) hacen **exactamente lo mismo** —
-    verificado comparando los cuerpos de ambas funciones.
   - `media_vianda` se conserva tal cual (no es modalidad de oferta).
   - En la práctica tampoco se nota: el `OrderDrawer` admin envía siempre
     `modality` derivado de `selectedOption.offerModality`.
-  - Nota histórica: el `validate_order` de `20260926165141` (16:51) sí
-    **rechazaba** con error; `20260926165602` lo reemplazó 5 minutos
-    después por la versión normalizadora, que es la vigente.
 - La única modalidad seleccionable en el pedido es `media_vianda` (más la
   que la opción ya determina).
 - `client_prices.modality` sigue siendo `general | opcional`: es precio
@@ -464,22 +458,12 @@ Detalle completo en `docs/decisiones/20260926-oferta-general-opcional.md`.
   una misma semana.
 - La identidad se toma desde `dish_versions.dish_id` /
   `menu_versions.menu_id`, no desde la versión concreta.
-- Implementado en `20260926000001` con el trigger
+- Implementado con el trigger
   `trg_validate_week_day_option_product_uniqueness` →
   `public.validate_week_day_option_product_uniqueness()`
   (advisory lock transaccional por semana) **y** un chequeo agregado en
-  `activate_week`.
-- ⚠️ En el encadenamiento de archivos locales ese chequeo agregado ya no
-  existe: `20260926165141` (posterior) reescribió `activate_week` **sin**
-  los duplicados, dejándolos solo en el trigger. La migración de
-  consolidación `20260927000001` devuelve la versión **fusionada**
-  (ambos chequeos).
+  `activate_week` (ambos presentes en la cadena consolidada).
 
-> ⚠️ En la base remota el **trigger también rige** (la misma migración
-> se aplicó allí como `20260926161458`). El chequeo agregado en
-> `activate_week` que faltaba lo repuso `20260927000001`, aplicada en
-> remoto con el push del 2026-09-29. Ver "Divergencia local ↔ remoto →
-> decisión tomada" en Fase 5A.
 
 ---
 
@@ -487,111 +471,32 @@ Detalle completo en `docs/decisiones/20260926-oferta-general-opcional.md`.
 
 ## Fase 5A — Migraciones
 
+La cadena es **6 archivos por responsabilidad** (consolidada el 2026-10-02;
+inventario en "Archivos SQL generados", al final):
+
+| Archivo                            | Responsabilidad                                |
+| ---------------------------------- | ---------------------------------------------- |
+| `20261002000001_schema`            | schemas, tablas, constraints, índices, RLS     |
+| `20261002000002_functions_private` | funciones de `private` (helpers + trigger fns) |
+| `20261002000003_triggers`          | triggers de dominio                            |
+| `20261002000004_rls`               | policies                                        |
+| `20261002000005_rpc_admin`         | RPCs de admin/catálogo/precio interno           |
+| `20261002000006_rpc_client`        | RPCs de cliente (`security definer`)            |
+
 - Proyecto Supabase: `Todo-Artesanal` (linkeado).
-- **17 archivos** de migración locales (inventario completo en
-  "Archivos SQL generados", al final).
 - 15 tablas en `public` + `private.admin_users` en `private`.
-- Funciones de dominio en `public`:
-  - `calculate_order_price`, `activate_week`, `close_week`
-  - `create_menu`, `create_menu_version`
-  - `create_week`, `update_week`
-  - `is_user_admin` (RPC público; grants a `service_role` y `authenticated`)
-- Funciones privadas:
-  - `private.is_admin`, `private.current_client_id`, `private.validate_order`
-  - `public.validate_week_day_option_product_uniqueness()` (security definer)
+- Funciones públicas: `calculate_order_price`,
+  `calculate_catalog_media_vianda_price`, `calculate_my_order_price`,
+  `activate_week`, `close_week`, `create_menu`, `create_menu_version`,
+  `create_week`, `update_week`, `is_user_admin`, `list_client_catalog`,
+  `validate_week_day_option_product_uniqueness`.
+- Funciones privadas: `private.is_admin`, `private.current_client_id`,
+  `private.validate_order`, `private.enforce_client_day_cutoff`,
+  `private.default_week_day_cutoff` y las de inmutabilidad/uniqueness.
 - Edge Functions deployadas: `rotate-client-token`, `authenticate-client-token`.
 - 1 admin creado en `private.admin_users`.
-
-### ⚠️ Divergencia local ↔ remoto → decisión tomada (2026-09-27)
-
-> **Decisión:** el repo local es la fuente de verdad; **lo aceptado en
-> local pisa lo que haya quedado en la base remota.**
-> Procedimiento completo: `docs/decisiones/20260927-local-fuente-de-verdad.md`.
-
-Estado de `npx supabase migration list` (actualizado 2026-09-29, con el
-push ya corrido):
-
-| Situación                     | Migraciones                                                                                  |
-| ----------------------------- | -------------------------------------------------------------------------------------------- |
-| Local y remoto (al día)       | `20260923000001`…`20260927000001` + `20260929000001` + `20260929000002` (historial completo) |
-| **Solo local**                | ninguna: el `db push` del 2026-09-29 aplicó el backlog pendiente                             |
-| **Solo remoto** (sin archivo) | ninguna: las 4 originales quedaron `reverted`                                                |
-
-Antes de la reparación el historial tenía, además, esas 4 versiones solo
-en remoto:
-
-#### Resultado de la inspección (ejecutada el 2026-09-27)
-
-Las 4 "solo remoto" se leyeron del historial real
-(`db dump --linked --data-only --schema supabase_migrations`) y son
-**equivalentes a archivos locales** — la divergencia era de
-bookkeeping, no de decisiones:
-
-| Remota           | Nombre                                | Equivalente local |
-| ---------------- | ------------------------------------- | ----------------- |
-| `20260924131042` | `grant_admin_check_rpc_authenticated` | `20260924000005`  |
-| `20260924131127` | `restrict_admin_check_rpc_anon`       | `20260924000006`  |
-| `20260926161458` | `week_option_unique_product_per_week` | `20260926000001`  |
-| `20260926165602` | `normalize_order_offer_modality`      | `20260926170000`  |
-
-Es decir, en producción **ya rigen** los grants de `is_user_admin`, la
-unicidad de producto por semana (por el trigger) y `validate_order` en
-modo normalización. Verificación con dumps de esquema (remoto vs. cadena
-local con `db reset`, 15/15 OK):
-
-- **Estructura** (229 statements: tablas, columnas, constraints,
-  índices, triggers, policies, grants): **0 diferencias**.
-- **Funciones** 24 vs 24: `validate_order` y
-  `validate_week_day_option_product_uniqueness` idénticas
-  semánticamente; `activate_week` remota = 7 chequeos, local
-  consolidada = 9.
-
-**Único gap real (ya cerrado):** `20260926165141` reescribió
-`activate_week` sin los chequeos de duplicados (igual en repo que en
-remoto); la doble red de unicidad en `activate_week` era lo único que
-agregaba el push y quedó aplicada el 2026-09-29.
-
-#### Estado del procedimiento
-
-1. ✅ **Consolidación escrita y validada:**
-   `20260927000001_reconcile_local_source_of_truth.sql` — idempotente,
-   va al final del backlog (última palabra). Fija:
-   - `activate_week` **fusionada**: General + Opcional por día **y**
-     producto único por semana;
-   - `private.validate_order` en modo normalización;
-   - trigger `trg_validate_week_day_option_product_uniqueness`;
-   - grants de `is_user_admin`;
-   - objetos de `week_day_options.offer_modality`;
-   - limpieza del duplicado conocido (ya aplicada en remoto: queda como
-     no-op defensivo).
-     Validada con `npx supabase db reset` sobre el stack local.
-2. ✅ **Historial reparado** (las 4 remotas eran equivalentes a
-   archivos locales):
-   `npx supabase migration repair --status reverted 20260924131042
-20260924131127 20260926161458 20260926165602`. Solo bookkeeping de
-   `supabase_migrations`; no toca esquema ni datos (revirtible con
-   `--status applied`).
-3. ✅ **Push corrido** (2026-09-29): el backlog quedó aplicado en remoto.
-
-   ```bash
-   npx supabase db push --include-all
-   ```
-
-   `--include-all` fue necesario porque `000005`, `000006` y `000001`
-   tienen timestamp anterior al último remoto aplicado. Empujó
-   exactamente `20260924000005`, `20260924000006`, `20260926000001`,
-   `20260926170000`, `20260927000001`.
-
-4. ✅ **`migration list` sin versiones huérfanas** y **local = remoto**
-   (verificado el 2026-09-29): las 15 del backlog + las 2 del 2026-09-29.
-
-> ✅ **Ventana transitoria (histórica, ya cerrada):** durante el push del
-> 2026-09-29, `20260926000001` reescribe `activate_week` a la versión
-> previa a la modalidad y la consolidación la restaura fusionada apenas
-> después. Por eso no se activan semanas mientras se empuja. Alternativa
-> mínima que evita la ventana: marcar `000005`, `000006`, `000001` y
-> `170000` con `migration repair --status applied` —su efecto ya está
-> verificado presente— y empujar solo la consolidación.
+- El historial de la reconciliación local/remoto (2026-09-27) quedó en
+  `docs/historico/20260927-local-fuente-de-verdad.md`.
 
 ## Fase 5B — Tipos y helpers
 
@@ -774,7 +679,7 @@ agregaba el push y quedó aplicada el 2026-09-29.
   `SupabaseClient` propio, igual que `getActiveWeek`.
 - Precios efectivos del cliente (general/opcional y media vianda de la
   oferta) vía el RPC `calculate_my_order_price`
-  (`20261001000001_client_effective_price.sql`): la identidad sale de
+  (`20261002000006_rpc_client.sql`): la identidad sale de
   `private.current_client_id()`, nunca de un parámetro.
 - Crear / modificar (cantidad, notas) / quitar pedidos y cancelaciones del
   cliente (cuentan como respuesta). Los servicios aceptan el cliente de la
@@ -782,7 +687,7 @@ agregaba el push y quedó aplicada el 2026-09-29.
 - **Media vianda desde el catálogo** (`ClientCatalogPicker`): el RLS de
   cliente no expone `dishes` / `menus`, así que el catálogo llega por el
   RPC `list_client_catalog`
-  (`20261001000002_client_catalog.sql`, `security definer`, identidad
+  (`20261002000006_rpc_client.sql`, `security definer`, identidad
   resuelta en `private.current_client_id()`, concedido solo a
   `authenticated`). Se carga una vez y se filtra en memoria; al elegir un
   producto se pide el precio al mismo `calculate_my_order_price` (pasando
@@ -805,11 +710,11 @@ agregaba el push y quedó aplicada el 2026-09-29.
   Después del corte el cliente no responde —ni pedidos ni
   cancelaciones—; el admin no se ve afectado. Ver
   `docs/decisiones/20261001-fuera-de-horario-cutoff-por-dia.md`.
-- Migración `20261001000003_week_day_cutoff.sql`: columna + backfill +
+- En la cadena consolidada (`20261002000001_schema.sql`): columna + backfill +
   default por trigger (`week_days_default_cutoff`) +
   `private.enforce_client_day_cutoff()` sobre `orders` y `cancellations`
-  (INSERT/UPDATE/DELETE). Validada con `db reset` (20/20) + smoke test
-  en local; aplicada en remoto (push del 2026-10-01).
+  (INSERT/UPDATE/DELETE). Validada con `db reset` (6/6) + smoke test
+  en local; la columna y los triggers viajan en la cadena consolidada.
 - UI: banner "Fuera de horario" + acciones deshabilitadas en
   `ClientDayCard` (`closedDayIds` se calcula al cargar en
   `useClientWeekData`; `ClientMenuPage` programa un `reload()` al
@@ -820,31 +725,21 @@ agregaba el push y quedó aplicada el 2026-09-29.
 
 # Pendientes — Fase 7 en adelante
 
-## 1. Reconciliar migraciones ✅ (hecho: historial alineado + push 2026-09-29)
+## 1. Migraciones consolidadas ✅ (hecho 2026-10-02)
 
-- **Decisión tomada: local gana**
-  (`docs/decisiones/20260927-local-fuente-de-verdad.md`).
-- ✅ **Hecho:** las 4 migraciones remotas sin archivo se inspeccionaron
-  (son equivalentes a `20260924000005`, `20260924000006`,
-  `20260926000001`, `20260926170000`) y se marcaron `reverted`:
-  `npx supabase migration repair --status reverted 20260924131042
-20260924131127 20260926161458 20260926165602`.
-- ✅ **Hecho:** consolidación `20260927000001` escrita y validada con
-  `npx supabase db reset` (15/15 OK); dump de esquema remoto vs. local:
-  estructura idéntica (0 diferencias).
-- ✅ **Hecho:** push corrido (2026-09-29) — el backlog local quedó
-  aplicado en remoto con `npx supabase db push --include-all`
-  (`--include-all` porque tres archivos eran anteriores al último
-  remoto). `migration list` quedó en sync.
-- ✅ **Hecho:** el 2026-10-01 se aplicaron `20261001000001_client_effective_price.sql`
-  (RPC `calculate_my_order_price`) y `20261001000002_client_catalog.sql`
-  (RPC `list_client_catalog`) con `npx supabase db push --yes`.
-  `migration list` sigue en sync.
+- La cadena de 20 archivos (con parches y una migracion de reconciliación) se
+  reemplazó por **6 archivos por responsabilidad**. Validado: `db reset` +
+  `pg_dump --schema-only` diff = **0 diferencias**.
+- La cadena consolidada se aplica sobre un **proyecto Supabase nuevo**; no se
+  corre `db push` contra el proyecto actual (conserva la cadena vieja). El
+  historial de la reconciliación local/remoto quedó en
+  `docs/historico/20260927-local-fuente-de-verdad.md`.
 
-## 2. Verificar el camino de éxito del JWT
+## 2. Verificar el camino de éxito del JWT ✅ (hecho 2026-10-01)
 
-- Falta abrir un `/menu/<token>` real para confirmar que PostgREST acepta
-  la firma ES256 y que la semana activa se renderiza.
+- Verificado con un link real: token → JWT ES256 → PostgREST acepta la firma →
+  `/menu/:token` renderiza la semana activa. Decisión operativa en
+  `docs/decisiones/20261001-cliente-jwt-es256-signing-key.md`.
 
 ## 3. UI de cliente (oferta + pedidos) ✅ (hecha)
 
@@ -864,281 +759,54 @@ agregaba el push y quedó aplicada el 2026-09-29.
 - `001`–`005` escritos (`versionado-inmutable`, `media-vianda-es-modalidad`,
   `precio-congelado-en-pedido`, `jwt-custom-para-clientes`,
   `semana-no-pertenece-a-cliente`).
-- `docs/prompt.md` se conserva como contrato original; no se actualiza.
+- `docs/historico/prompt.md` se conserva como contrato original; no se actualiza.
 
 ---
 
 # Archivos SQL generados
 
-## 20260923000001_schema.sql
+La cadena son **6 archivos por responsabilidad** (consolidada el 2026-10-02).
+Reproducen el esquema final: `db reset` aplica las 6 sin errores y
+`pg_dump --schema-only` (public + private) da **0 diferencias** contra la
+baseline (3505 líneas idénticas). Los tipos generados son equivalentes a
+`src/types/database.ts`.
 
-- DDL base completo. Estructura base (tablas, constraints, índices).
-- Incluye `clients.allows_half_portion`.
-- NO incluye funciones, triggers, RLS, datos iniciales.
+## 20261002000001_schema.sql
 
-## 20260923000002_functions.sql
+- Schemas (`private`), 15 tablas de `public` + `private.admin_users`.
+- Constraints (PK/FK/UNIQUE/CHECK), índices y RLS habilitado en las 16 tablas.
+- Incluye `clients.allows_half_portion` y `week_days.cutoff_at` (fuera de horario).
 
-- `calculate_order_price(client_id, week_day_option_id, modality)`
-  - precedencia: dish_specific > client_prices[modalidad] > base_price
-  - media_vianda: precio normal (rama general) / 2
-  - no aplica client_product_prices a menús
-  - security definer
-- `activate_week(week_id)` — draft → active
-  - security definer + chequeo admin
-  - congela week_expected_clients
-  - usa variable `todo_artesanal.allow_week_transition`
-- `close_week(week_id)` — active → closed
-  - security definer + chequeo admin
+## 20261002000002_functions_private.sql
 
-## 20260923000003_triggers.sql
+- 17 funciones de `private`: identidad (`is_admin`, `current_client_id`),
+  trigger functions (inmutabilidad, validaciones, `validate_order`,
+  `enforce_client_day_cutoff`, `default_week_day_cutoff`) y helpers de menú.
+- Grants: `execute` de `is_admin`/`current_client_id` a `authenticated`,
+  `usage` de `private` a `authenticated`/`service_role`, `select` de
+  `private.admin_users` a `service_role`.
 
-- Inmutabilidad dish_versions / menu_versions (UPDATE/DELETE)
-- `menu_version_items`: constraint trigger DEFERRABLE INITIALLY DEFERRED
-  que garantiza ≥1 main al COMMIT
-- `weeks.status`: trigger que bloquea cambios directos
-  (usa `todo_artesanal.allow_week_transition`)
-- `weeks closed`: protección de week_days, week_day_options, orders,
-  cancellations
-- `orders`: validación + congelamiento de applied_price + inmutabilidad
-  de campos clave
-- `week_day_options`: congelamiento post-pedido
-- `orders ↔ cancellations`: no coexistencia (cliente + día)
+## 20261002000003_triggers.sql
 
-## 20260923000004_rls.sql
+- 17 triggers de dominio + la función de soporte
+  `public.validate_week_day_option_product_uniqueness()`.
+- Inmutabilidad de versiones, validación de pedidos/cancelaciones,
+  congelamiento post-pedido, protección de semanas `closed`, transiciones de
+  `weeks.status` y corte por horario.
 
-- `create schema if not exists private`
-- `private.admin_users` (tabla)
-- `private.is_admin()` (security definer)
-- `private.current_client_id()` (security definer, defensiva)
-- RLS habilitado en las 15 tablas públicas + admin_users
-- Policies de admin (FOR ALL) en todas las tablas
-- Policies de cliente según checklist
-- Grants de tablas y funciones
-- Grants defensivos para service_role
+## 20261002000004_rls.sql
 
-## 20260923000005_admin_setup.sql
+- 30 policies: admin (`private.is_admin()`), cliente
+  (`client_id = private.current_client_id()`) y service_role.
 
-- INSERT del primer administrador (comentado, placeholder UUID).
-- Comentarios con instrucciones para agregar futuros admins.
+## 20261002000005_rpc_admin.sql
 
-## 20260924000001_menu_rpc.sql
+- RPCs de admin/catálogo/precio: `activate_week`, `close_week`, `create_week`,
+  `update_week`, `create_menu`, `create_menu_version`, `is_user_admin`,
+  `calculate_order_price`, `calculate_catalog_media_vianda_price`.
+- Grants: `is_user_admin` sin `anon`; los dos precios internos sin `authenticated`.
 
-- `create_menu(p_name, p_price, p_items jsonb, p_active bool) → uuid`
-  - security definer + is_admin()
-  - valida: nombre no vacío, precio ≥ 0, items array no vacío, sin
-    dish_version_id repetidos, exactamente 1 main, dish_versions existen
-  - inserta menus + menu_versions (v1) + menu_version_items en una
-    transacción
-- `create_menu_version(p_menu_id, p_name, p_price, p_items jsonb) → uuid`
-  - mismas validaciones
-  - calcula MAX(version_number) + 1
-  - inserta en una transacción
+## 20261002000006_rpc_client.sql
 
-## 20260924000002_week_rpc.sql
-
-- `create_week(p_start_date date, p_end_date date) → uuid`
-  - security definer + is_admin()
-  - valida: lunes a viernes, 5 días exactos, fechas válidas
-  - inserta weeks (draft) + 5 week_days en una transacción
-  - el EXCLUDE gist weeks_no_overlap impide solapamiento (23P01)
-- `update_week(p_week_id, p_start_date, p_end_date)`
-  - solo permite modificar semanas en draft
-  - borra week_days actuales (cascade a week_day_options) y recrea
-  - ADVERTENCIA documentada: si había opciones cargadas, se pierden
-
-## 20260924000003_edge_function_grants.sql
-
-- `grant usage on schema private to service_role`
-- `grant select on table private.admin_users to service_role`
-- Necesario porque la Edge Function necesita verificar admins
-  (aunque terminó usando el RPC público `is_user_admin`).
-
-## 20260924000004_admin_check_rpc.sql
-
-- `is_user_admin(p_user_id uuid) → boolean`
-  - security definer + set search_path = public, private
-  - consulta private.admin_users
-  - revocado de public y authenticated
-  - grant execute a service_role
-  - necesario para que la Edge Function verifique admins sin acceder
-    al schema private vía PostgREST (que solo expone public)
-
-## 20260924000005_grant_admin_check_rpc_authenticated.sql
-
-- `grant execute on function public.is_user_admin(uuid) to authenticated`
-- Habilita el chequeo de admin desde el frontend (`isCurrentUserAdmin`).
-- Aplicada en remoto (push del 2026-09-29); su efecto ya regía en
-  producción desde la migración del dashboard `20260924131042` (mismo
-  contenido).
-
-## 20260924000006_restrict_admin_check_rpc_anon.sql
-
-- `revoke execute ... from anon` (defensa: el RPC solo para
-  `service_role` y `authenticated`).
-- Aplicada en remoto (push del 2026-09-29); su efecto ya estaba en
-  producción vía dashboard `20260924131127`.
-
-## 20260926000001_week_option_unique_product_per_week.sql
-
-- Regla "producto único por semana": ni el mismo `dish_id` ni el mismo
-  `menu_id` en dos días distintos de una misma semana (identidad lógica,
-  tomada desde `dish_versions.dish_id` / `menu_versions.menu_id`).
-- Borra el único duplicado existente al momento de crear la migración
-  (fila con id fijo; si no existe, es no-op).
-- Crea `public.validate_week_day_option_product_uniqueness()`
-  (security definer) + trigger
-  `trg_validate_week_day_option_product_uniqueness`
-  (BEFORE INSERT/UPDATE de `week_day_id`, `option_type`,
-  `dish_version_id`, `menu_version_id`) con `pg_advisory_xact_lock` por
-  semana para cerrar la carrera entre escrituras concurrentes.
-- Reemplaza `activate_week` sumando el chequeo agregado de duplicados +
-  "exactamente 1 main" + "ningún día vacío".
-- Aplicada en remoto (push del 2026-09-29); su efecto ya regía en
-  producción vía `20260926161458` (mismo SQL, aplicado desde el
-  dashboard): trigger, función, limpieza del duplicado y `activate_week`
-  con duplicados. Ese último chequeo lo pisó después `20260926165141`
-  **tanto en el repo como en remoto**; lo repone la consolidación
-  `20260927000001`.
-
-## 20260926165141_add_week_offer_modality.sql
-
-- `week_day_options.offer_modality` (nullable primero): backfill por
-  orden de creación dentro de cada día (1ª = `general`, 2ª = `opcional`),
-  y falla si alguna queda NULL.
-- `NOT NULL` + CHECK `week_day_options_offer_modality_check`
-  (`general` / `opcional`).
-- Índice único `week_day_options_week_day_offer_modality_unique`
-  `(week_day_id, offer_modality)`.
-- Reemplaza `activate_week`: **exige que cada uno de los 5 días tenga
-  ambas modalidades** (General y Opcional). ⚠️ Esta versión **no trae**
-  los chequeos de duplicados de la migración anterior, así que en local
-  `activate_week` los perdió (la unicidad de producto queda solo en el
-  trigger).
-- Reemplaza `private.validate_order`: si `new.modality` es `general` u
-  `opcional` y no coincide con `offer_modality` de la opción,
-  **rechaza con error** (no normaliza). En remoto esa versión duró
-  5 minutos: `20260926165602` la reemplazó por la normalizadora.
-- **Aplicada local y en remoto.**
-
-## 20260926170000_normalize_order_offer_modality.sql
-
-- Reemplaza `private.validate_order` por una versión comentada que, en
-  vez de rechazar, **normaliza**: `new.modality := offer_modality` cuando
-  es `general` u `opcional` (`media_vianda` se conserva).
-- **Contenido idéntico** al de la versión vigente en remoto
-  (`20260926165602`, `normalize_order_offer_modality`) — verificado
-  comparando los cuerpos normalizados de ambas funciones.
-- Aplicada en remoto (push del 2026-09-29).
-
-## 20260927000001_reconcile_local_source_of_truth.sql
-
-- **Migración de consolidación** (decisión
-  `docs/decisiones/20260927-local-fuente-de-verdad.md`): fija el estado
-  final local, sea cual sea lo que hayan hecho en remoto las migraciones
-  sin archivo. Idempotente; va al final del backlog.
-- `public.activate_week` **fusionada**: General + Opcional por día **y**
-  producto único por semana **y** 1 main por menú (ninguna versión
-  anterior tenía los dos chequeos a la vez).
-- `private.validate_order` en modo **normalización** (versión local
-  `20260926170000`).
-- Trigger + función de unicidad de producto por semana.
-- Grants de `is_user_admin`: `authenticated` y `service_role` sí,
-  `anon` no.
-- Garantiza objetos de `week_day_options.offer_modality` (NOT NULL, CHECK
-  e índice único) idempotentemente.
-- Limpieza del duplicado conocido, solo si sigue existiendo y no tiene
-  pedidos.
-- **Estado:** aplicada en remoto (push del 2026-09-29).
-
-## 20260929000001_catalog_media_vianda.sql
-
-- **Media vianda desde el catálogo** (decisión
-  `docs/decisiones/20260929-media-vianda-catalogo.md`; revierte
-  parcialmente `docs/decisiones/20260926-oferta-general-opcional.md`).
-- `orders.week_day_id` (nullable → backfill desde `week_day_options` →
-  `NOT NULL`): el día deja de derivarse de la opción de oferta.
-- `orders.dish_version_id` / `orders.menu_version_id`: producto de
-  catálogo para la media vianda libre.
-- CHECK `orders_product_source_check`: exactamente una fuente de
-  producto según la modalidad.
-- Índices: `orders_week_day_id_idx`, dos parciales por producto y dos
-  **únicos parciales** (`orders_catalog_dish_unique`,
-  `orders_catalog_menu_unique`).
-- `public.calculate_catalog_media_vianda_price()`: 50% del precio normal
-  (plato: específico > general > base; menú: general > base).
-- `private.validate_order` unificado (día desde `week_day_id`, precios
-  por fuente) + triggers de protección de cancelación leyendo el día
-  desde `orders.week_day_id`.
-- **Aplicada en remoto** (push del 2026-09-29).
-
-## 20260929000002_fix_media_vianda_text.sql
-
-- **Solo texto.** `create or replace` de `private.validate_order`,
-  `private.prevent_order_with_cancellation` y
-  `private.prevent_cancellation_with_order` para reparar el mojibake de 6
-  mensajes de error que quedó en la 0001 (doble codificación al
-  escribirla). Sin cambios de lógica; no necesita rollback.
-- **Aplicada en remoto** (push del 2026-09-29).
-
-## 20261001000001_client_effective_price.sql
-
-- `public.calculate_my_order_price(p_week_day_option_id uuid, p_dish_version_id uuid, p_menu_version_id uuid, p_modality text) → numeric(10,2)`.
-  Exige **exactamente una** fuente de producto (oferta, plato o menú).
-- **`security definer`**: la identidad sale de `private.current_client_id()`
-  (claim `client_id` del JWT ES256 del cliente), nunca de un parámetro.
-- Devuelve la **vista previa** del precio efectivo del cliente: plato
-  específico > general del cliente > base; menú: general > base; la
-  `media_vianda` divide por 2.
-- Es **solo UX**: el precio definitivo lo congela `validate_order` en
-  `applied_price` al insertar.
-- Concedido **solo a `authenticated`** (el JWT de cliente y el admin
-  comparten ese rol; `anon` queda fuera).
-- **Aplicada en remoto** (push del 2026-10-01).
-
-## 20261001000002_client_catalog.sql
-
-- **Media vianda desde el catálogo para el cliente.**
-- `public.list_client_catalog() → { product_type, product_id, version_id, name }`
-- **`security definer` + `stable`**: el RLS de cliente solo expone las
-  `dish_versions` / `menu_versions` de la semana activa, no el catálogo
-  entero, así que el buscador libre pasa por este RPC.
-- Devuelve los platos activos y los menús activos con su **última**
-  versión; la identidad se resuelve con `private.current_client_id()` y
-  la función corta con un error si no hay cliente en la sesión.
-- Concedido **solo a `authenticated`**. No devuelve precios: eso lo hace
-  `calculate_my_order_price`.
-- **Aplicada en remoto** (push del 2026-10-01).
-
-## 20261001000003_week_day_cutoff.sql
-
-- **"Fuera de horario" con corte por día.**
-- `week_days.cutoff_at timestamptz NOT NULL` + backfill (20:00 del día
-  anterior, `America/Argentina/Buenos_Aires`).
-- Trigger `week_days_default_cutoff` (BEFORE INSERT) completa el default
-  en `create_week` / `update_week`.
-- `private.enforce_client_day_cutoff()` + `orders_client_cutoff` /
-  `cancellations_client_cutoff` (BEFORE INSERT OR UPDATE OR DELETE):
-  rechaza al cliente cuando `now() > cutoff_at`; admin exento
-  (`private.current_client_id()` nulo).
-- Decisión: `docs/decisiones/20261001-fuera-de-horario-cutoff-por-dia.md`.
-- **Aplicada en local (`db reset` 20/20 + smoke test) y en remoto**
-  (push del 2026-10-01).
-
----
-
-## Migraciones del dashboard (inspeccionadas y reparadas 2026-09-27)
-
-Existían solo en remoto (`20260924131042`, `20260924131127`,
-`20260926161458`, `20260926165602`): se aplicaron desde el dashboard
-con timestamps auto-generados. Inspeccionadas el 2026-09-27
-(`db dump --linked --data-only --schema supabase_migrations`), **su
-contenido es equivalente a los archivos locales** `20260924000005`,
-`20260924000006`, `20260926000001` y `20260926170000` respectivamente,
-y por eso se marcaron `reverted` en el historial:
-
-```bash
-npx supabase migration repair --status reverted 20260924131042 20260924131127 20260926161458 20260926165602
-```
-
-Ya no aparecen en `npx supabase migration list`. Detalle y verificación
-de esquema en `docs/decisiones/20260927-local-fuente-de-verdad.md`.
+- RPCs de cliente (`security definer`, identidad desde
+  `private.current_client_id()`): `calculate_my_order_price` y `list_client_catalog`.
