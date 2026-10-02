@@ -708,10 +708,10 @@ agregaba el push y quedó aplicada el 2026-09-29.
 
 - Recibe `{ token: string }` por POST. Sin `Authorization`: el propio link token es la credencial.
 - `verify_jwt = false` en `supabase/config.toml` (si no, el anon token del navegador bloquearía la llamada).
-- Busca `token_hash` (SHA-256) en `client_tokens`; valida que no esté invalidado ni expirado (`expires_at`).
-- Devuelve un **JWT ES256** con `sub = client_id` y `client_id` como claim (lo lee `private.current_client_id()`).
+- Busca `token_hash` (SHA-256) en `client_tokens`; exige `invalidated_at IS NULL`. Los tokens no caducan solos: solo se invalidan al rotar (no existe `expires_at`).
+- Devuelve un **JWT ES256** con `client_id` como claim (lo lee `private.current_client_id()`); `sub` se omite a propósito (no hay fila en `auth.users` que impersonar, así que `auth.uid()` da null).
 - Firma con `CLIENT_JWT_PRIVATE_KEY_JWK` + `CLIENT_JWT_KID` (secrets) contra la signing key subida con `supabase gen signing-key --algorithm ES256`. `SUPABASE_JWT_SECRET` no sirve: es HS256.
-- TTL 1 hora. Rotar el link invalida el `token` del enlace, pero **no** revoca un JWT ya emitido (ver ADR pendiente `004-jwt-custom-para-clientes.md`).
+- TTL 1 hora. Rotar el link invalida el `token` del enlace, pero **no** revoca un JWT ya emitido (ver `docs/adr/004-jwt-custom-para-clientes.md`).
 - Frontend: `src/features/menu/services/client-auth.service.ts` + `createClientWithToken()` de `src/lib/supabase.ts` (cliente Supabase con `accessToken: async () => jwt`; no se usa `setSession` porque no hay usuario GoTrue ni refresh token).
 - Verificado en vivo: token desconocido → `401 {"error":"Token inválido o expirado"}` (confirma `verify_jwt=false`, secrets cargados y CORS).
 - ✅ **Camino de éxito verificado (2026-10-01):** link real → `authenticate-client-token` (200) → JWT **ES256** con el `kid` de la signing key activa → PostgREST acepta la firma → `/menu/:token` renderiza la semana activa con los pedidos del cliente. Los dos bloqueos que aparecieron (secret sin cargar y `key_ops` incompatible con la firma) están documentados en `docs/decisiones/20261001-cliente-jwt-es256-signing-key.md`.
